@@ -96,7 +96,7 @@ The endpoint will return a JSON object containing the evaluation reports for the
 ## 3. Example Frontend Implementation (JavaScript)
 
 ```javascript
-// 1. Connection Variables (Usually retrieved from Main Backend)
+// 1. Connection Variables 
 const roomId = "room_456";
 const userId = "usr_987654321";
 
@@ -145,3 +145,7 @@ async function uploadAudioToAI(audioBlob, questionText) {
     }
 }
 ```
+
+
+// This is standard, built-in JavaScript that works in any browser
+const socket = new WebSocket("wss://ml.synthbitietlsboost.com/ws/room_456?userId=123");
