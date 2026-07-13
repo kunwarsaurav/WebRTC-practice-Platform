@@ -5,6 +5,8 @@ from typing import Dict, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import json
+import httpx
+import asyncio
 from dotenv import load_dotenv
 from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
@@ -23,6 +25,11 @@ async def startup_event():
     print('Initializing heavy ML models...')
     init_models()
     print('ML Models initialization complete.')
+
+@app.post('/create-room')
+async def create_room():
+    """Generates and returns a unique room ID."""
+    return {"roomId": str(uuid.uuid4())}
 
 @app.websocket('/ws/{room_id}')
 async def websocket_endpoint(websocket: WebSocket, room_id: str, userId: str=None):
@@ -59,6 +66,27 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, userId: str=Non
             for client in rooms[room_id]:
                 await client.send_text(json.dumps({'type': 'user-left'}))
 
+async def send_webhook(room_id: str, user_id: str, report: dict):
+    webhook_url = os.environ.get("MAIN_BACKEND_WEBHOOK_URL")
+    if not webhook_url:
+        print("Webhook URL not configured, skipping webhook.")
+        return
+    
+    payload = {
+        "roomId": room_id,
+        "userId": user_id,
+        "report": report
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            print(f"Sending webhook to {webhook_url} for user {user_id} in room {room_id}")
+            response = await client.post(webhook_url, json=payload, timeout=10.0)
+            response.raise_for_status()
+            print("Webhook sent successfully.")
+        except Exception as e:
+            print(f"Failed to send webhook: {e}")
+
 @app.post('/evaluate')
 async def evaluate_audio(audio: UploadFile=File(...), roomId: str=Form(...), userId: str=Form(...), question: str=Form(None), background_tasks: BackgroundTasks=BackgroundTasks()):
     temp_dir = tempfile.gettempdir()
@@ -94,6 +122,10 @@ async def evaluate_audio(audio: UploadFile=File(...), roomId: str=Form(...), use
     if roomId not in room_reports:
         room_reports[roomId] = {}
     room_reports[roomId][userId] = report
+    
+    # Trigger the webhook asynchronously
+    background_tasks.add_task(send_webhook, roomId, userId, report)
+    
     if roomId in rooms:
         broadcast_data = json.dumps({'type': 'evaluation-ready', 'reports': room_reports[roomId]})
         for client in rooms[roomId]:
