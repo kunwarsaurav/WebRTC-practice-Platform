@@ -21,7 +21,6 @@ body {
   gap: 40px;
 }
 
-/* Header */
 .header {
   display: flex;
   justify-content: space-between;
@@ -56,7 +55,6 @@ body {
   font-weight: 500;
 }
 
-/* Avatars */
 .avatars-section {
   display: flex;
   justify-content: center;
@@ -103,7 +101,6 @@ body {
   color: #64748b;
 }
 
-/* Topic Card */
 .topic-card {
   background: white;
   border: 1px solid #e2e8f0;
@@ -175,7 +172,6 @@ body {
   color: #64748b;
 }
 
-/* Audio Visualizer Area */
 .visualizer-section {
   display: flex;
   justify-content: center;
@@ -235,7 +231,6 @@ body {
 .bar:nth-child(3) { animation-delay: 0.4s; }
 .bar:nth-child(4) { animation-delay: 0.1s; }
 
-/* Controls */
 .controls-section {
   display: flex;
   justify-content: center;
@@ -279,7 +274,6 @@ body {
   color: #ef4444;
 }
 
-/* Join screen (overlay or simple layout) */
 .join-screen {
   background: white;
   padding: 40px;

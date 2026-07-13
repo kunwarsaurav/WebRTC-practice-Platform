@@ -18,24 +18,24 @@ const TOPICS = [
   "Describe an interesting conversation you had with a stranger. You should say: where you met them, what you talked about, why you found it interesting, and explain how it affected you."
 ];
 
-const SESSION_DURATION = 300; // 5 minutes
+const SESSION_DURATION = 300;
 
 function App() {
   const [roomId, setRoomId] = useState('');
-  const [status, setStatus] = useState('Disconnected'); // Disconnected, Waiting, Connected, Processing, ReportReady
+  const [status, setStatus] = useState('Disconnected');
   const statusRef = useRef('Disconnected');
   useEffect(() => { statusRef.current = status; }, [status]);
   const [isMuted, setIsMuted] = useState(false);
   const [topicIndex, setTopicIndex] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(SESSION_DURATION);
   const [reports, setReports] = useState(null);
-  
+
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const wsRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const timerRef = useRef(null);
-  
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const isProcessingRef = useRef(false);
@@ -47,14 +47,13 @@ function App() {
         setSecondsRemaining(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
-            handleLeave(true); // trigger evaluation when timer ends
+            handleLeave(true);
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
-      
-      // Start recording
+
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
         mediaRecorderRef.current.start(1000);
       }
@@ -77,10 +76,10 @@ function App() {
     formData.append("roomId", roomId);
     formData.append("userId", userIdRef.current);
     formData.append("question", TOPICS[topicIndex]);
-    
+
     const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'localhost:8000';
     const httpUrl = BACKEND_URL.includes('localhost') ? `http://${BACKEND_URL}` : `https://${BACKEND_URL}`;
-    
+
     try {
       const response = await fetch(`${httpUrl}/evaluate`, {
         method: "POST",
@@ -104,10 +103,10 @@ function App() {
     const protocol = BACKEND_URL.includes('localhost') ? 'ws' : 'wss';
     const cleanUrl = BACKEND_URL.replace(/^wss?:\/\//, '');
     const wsUrl = `${protocol}://${cleanUrl}/ws/${roomId}?userId=${userIdRef.current}`;
-    
+
     wsRef.current = new WebSocket(wsUrl);
     wsRef.current.onopen = () => setStatus('Waiting');
-    
+
     wsRef.current.onmessage = async (event) => {
       const message = JSON.parse(event.data);
       if (message.type === 'user-joined') createOffer();
@@ -115,7 +114,7 @@ function App() {
       else if (message.type === 'answer') await handleAnswer(message.sdp);
       else if (message.type === 'ice-candidate') await handleNewICECandidateMsg(message.candidate);
       else if (message.type === 'user-left') {
-        // If partner leaves, we should process the session if it was connected
+
         if (statusRef.current === 'Connected') {
           handleLeave(true);
         } else {
@@ -200,14 +199,14 @@ function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
-      
+
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       mediaRecorderRef.current = mr;
-      
+
       mr.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
-      
+
       mr.onstop = async () => {
         if (isProcessingRef.current) {
           const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
@@ -231,12 +230,11 @@ function App() {
       isProcessingRef.current = false;
       setStatus('Disconnected');
     }
-    
-    // Stop recording, triggers onstop which uploads if isProcessingRef is true
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
-    
+
     if (wsRef.current) {
        if (process && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: 'end-call' }));
@@ -245,7 +243,7 @@ function App() {
           wsRef.current = null;
        }
     }
-    
+
     if (peerConnectionRef.current) {
        peerConnectionRef.current.close();
        peerConnectionRef.current = null;
@@ -293,11 +291,11 @@ function App() {
     return (
       <div className="app-container">
         <div className="header">
-          <button className="back-btn" onClick={() => { 
-             setStatus('Disconnected'); 
-             setReports(null); 
-             setTopicIndex(0); 
-             setSecondsRemaining(SESSION_DURATION); 
+          <button className="back-btn" onClick={() => {
+             setStatus('Disconnected');
+             setReports(null);
+             setTopicIndex(0);
+             setSecondsRemaining(SESSION_DURATION);
              if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
           }}>
             <ArrowLeft size={20} />
@@ -305,12 +303,12 @@ function App() {
           <div className="title">Evaluation Reports</div>
           <div></div>
         </div>
-        
+
         <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
           {reports && Object.entries(reports).map(([uid, report]) => (
             <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                 <FileText size={20} color="#3b82f6"/> 
+                 <FileText size={20} color="#3b82f6"/>
                  {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
               </h3>
               <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0f172a', marginBottom: '16px' }}>
@@ -322,7 +320,7 @@ function App() {
                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
               </div>
-              
+
               {report.user_input && (
                  <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
                    <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
