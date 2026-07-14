@@ -159,43 +159,59 @@ STRONG_COLLOCATIONS = {('make', 'decision'), ('make', 'progress'), ('make', 'dif
 def analyze_lexical(transcript: str) -> dict[str, Any]:
     if not transcript.strip(): return _empty_lexical()
     
+    words = [w.strip(',.!?') for w in transcript.lower().split() if w.strip(',.!?')]
+    total_words = len(words)
+    if total_words == 0: return _empty_lexical()
+    
+    unique_words = set(words)
+    type_token_ratio = len(unique_words) / total_words
+    
+    mattr_window = 50
+    if total_words <= mattr_window:
+        moving_avg_ttr = type_token_ratio
+    else:
+        ttr_sum = sum(len(set(words[i:i+mattr_window])) / mattr_window for i in range(total_words - mattr_window + 1))
+        moving_avg_ttr = ttr_sum / (total_words - mattr_window + 1)
+        
+    STOP_WORDS = {'the', 'a', 'an', 'is', 'it', 'i', 'in', 'on', 'at', 'to', 'of', 'and', 'or', 'but', 'so', 'for', 'with', 'was', 'are', 'you', 'he', 'she', 'they', 'we', 'this', 'that', 'these', 'those', 'as', 'be', 'do', 'have', 'my', 'your', 'his', 'her', 'their', 'our', 'what', 'who', 'when', 'where', 'why', 'how', 'which'}
+    content_words = [w for w in words if w not in STOP_WORDS and len(w) > 2]
+    lexical_density = len(content_words) / total_words
+    
+    avg_word_length = sum(len(w) for w in words) / total_words
+    
     sys_prompt = """You are an expert IELTS examiner analyzing a speaker's lexical resource.
 Return a JSON object with the exact keys:
 {
-  "total_words": 0,
-  "unique_words": 0,
-  "type_token_ratio": 0.0,
-  "moving_avg_ttr": 0.0,
-  "lexical_density": 0.0,
-  "advanced_vocab_count": 0,
-  "advanced_vocab_ratio": 0.0,
-  "advanced_vocab_examples": ["word1"],
-  "high_repetition_words": ["word2"],
-  "repetition_frequency": 0,
-  "paraphrase_indicator": false,
+  "advanced_vocab_examples": ["word1", "word2"],
+  "high_repetition_words": ["word3", "word4"],
   "paraphrase_count": 0,
-  "avg_word_length": 0.0,
   "collocations_detected": 0
 }
-Ensure all values are appropriate numerical/boolean types."""
+Extract the list of advanced English vocabulary words used, the list of words that are repetitively overused, the number of times they successfully paraphrased, and the number of strong collocations or idiomatic phrases used. Only output the JSON object."""
     
     res = _query_groq_llm(sys_prompt, transcript)
     if not res: return _empty_lexical()
     
+    adv_examples = res.get('advanced_vocab_examples', [])
+    adv_count = len(adv_examples)
+    adv_ratio = adv_count / total_words
+    
+    rep_words = res.get('high_repetition_words', [])
+    
     return {
-        'total_words': res.get('total_words', len(transcript.split())),
-        'unique_words': res.get('unique_words', 0),
-        'type_token_ratio': float(res.get('type_token_ratio', 0.0)),
-        'moving_avg_ttr': float(res.get('moving_avg_ttr', 0.0)),
-        'lexical_density': float(res.get('lexical_density', 0.0)),
-        'advanced_vocab_count': int(res.get('advanced_vocab_count', 0)),
-        'advanced_vocab_ratio': float(res.get('advanced_vocab_ratio', 0.0)),
-        'advanced_vocab_examples': res.get('advanced_vocab_examples', []),
-        'high_repetition_words': res.get('high_repetition_words', []),
-        'repetition_frequency': int(res.get('repetition_frequency', 0)),
-        'paraphrase_indicator': bool(res.get('paraphrase_indicator', False)),
+        'total_words': total_words,
+        'unique_words': len(unique_words),
+        'type_token_ratio': float(type_token_ratio),
+        'moving_avg_ttr': float(moving_avg_ttr),
+        'lexical_density': float(lexical_density),
+        'advanced_vocab_count': adv_count,
+        'advanced_vocab_ratio': float(adv_ratio),
+        'advanced_vocab_examples': adv_examples,
+        'high_repetition_words': rep_words,
+        'repetition_frequency': len(rep_words),
+        'paraphrase_indicator': int(res.get('paraphrase_count', 0)) > 0,
         'paraphrase_count': int(res.get('paraphrase_count', 0)),
-        'avg_word_length': float(res.get('avg_word_length', 0.0)),
+        'avg_word_length': float(avg_word_length),
         'collocations_detected': int(res.get('collocations_detected', 0))
     }
 
@@ -209,48 +225,73 @@ PREPOSITION_RULE_IDS = {'AT_THE_WEEKEND', 'PREPOSITION_AFTER', 'ON_THE_WAY', 'IN
 
 def analyze_grammar(transcript: str, lang: str='en-GB') -> dict[str, Any]:
     if not transcript.strip(): return _empty_grammar()
+    
+    words = [w.strip(',.!?') for w in transcript.lower().split() if w.strip(',.!?')]
+    total_words = max(len(words), 1)
+    
+    sentences = [s.strip() for s in re.split(r'[.!?]+', transcript) if s.strip()]
+    sentence_count = len(sentences)
+    if sentence_count == 0: return _empty_grammar()
+    
+    avg_sentence_length = total_words / sentence_count
 
     sys_prompt = """You are an expert IELTS examiner analyzing a speaker's grammar.
 Return a JSON object with the exact keys:
 {
-  "total_grammar_errors": 0,
-  "errors_per_100_words": 0.0,
-  "tense_errors": 0,
-  "agreement_errors": 0,
-  "article_errors": 0,
-  "preposition_errors": 0,
-  "other_errors": 0,
-  "error_examples": [{"rule": "RULE", "message": "msg", "context": "ctx"}],
-  "sentence_count": 0,
-  "avg_sentence_length": 0.0,
-  "subordinate_clause_count": 0,
-  "subordinate_clause_freq": 0.0,
-  "complex_sentence_ratio": 0.0,
-  "compound_sentence_ratio": 0.0,
-  "simple_sentence_ratio": 0.0,
-  "sentence_variety_score": 0.0
-}"""
+  "grammar_errors": [{"type": "tense", "message": "msg", "context": "ctx"}],
+  "complex_sentence_count": 0,
+  "compound_sentence_count": 0,
+  "simple_sentence_count": 0,
+  "subordinate_clause_count": 0
+}
+For grammar_errors, the "type" must be exactly one of: "tense", "agreement", "article", "preposition", or "other".
+Count the number of complex sentences, compound sentences, simple sentences, and total subordinate clauses. Only output the JSON object."""
     
     res = _query_groq_llm(sys_prompt, transcript)
     if not res: return _empty_grammar()
     
+    errors = res.get('grammar_errors', [])
+    total_grammar_errors = len(errors)
+    errors_per_100 = (total_grammar_errors / total_words) * 100
+    
+    tense_errors = sum(1 for e in errors if e.get('type') == 'tense')
+    agreement_errors = sum(1 for e in errors if e.get('type') == 'agreement')
+    article_errors = sum(1 for e in errors if e.get('type') == 'article')
+    preposition_errors = sum(1 for e in errors if e.get('type') == 'preposition')
+    other_errors = sum(1 for e in errors if e.get('type') not in ['tense', 'agreement', 'article', 'preposition'])
+    
+    comp_count = int(res.get('complex_sentence_count', 0))
+    cmpd_count = int(res.get('compound_sentence_count', 0))
+    simp_count = int(res.get('simple_sentence_count', sentence_count))
+    
+    total_structs = max(comp_count + cmpd_count + simp_count, 1)
+    
+    complex_ratio = comp_count / total_structs
+    compound_ratio = cmpd_count / total_structs
+    simple_ratio = simp_count / total_structs
+    
+    variety_score = 1.0 - (abs(complex_ratio - 0.33) + abs(compound_ratio - 0.33) + abs(simple_ratio - 0.33)) / 2.0
+    
+    subord_count = int(res.get('subordinate_clause_count', 0))
+    subord_freq = subord_count / sentence_count
+
     return {
-        'total_grammar_errors': int(res.get('total_grammar_errors', 0)),
-        'errors_per_100_words': float(res.get('errors_per_100_words', 0.0)),
-        'tense_errors': int(res.get('tense_errors', 0)),
-        'agreement_errors': int(res.get('agreement_errors', 0)),
-        'article_errors': int(res.get('article_errors', 0)),
-        'preposition_errors': int(res.get('preposition_errors', 0)),
-        'other_errors': int(res.get('other_errors', 0)),
-        'error_examples': res.get('error_examples', []),
-        'sentence_count': int(res.get('sentence_count', 0)),
-        'avg_sentence_length': float(res.get('avg_sentence_length', 0.0)),
-        'subordinate_clause_count': int(res.get('subordinate_clause_count', 0)),
-        'subordinate_clause_freq': float(res.get('subordinate_clause_freq', 0.0)),
-        'complex_sentence_ratio': float(res.get('complex_sentence_ratio', 0.0)),
-        'compound_sentence_ratio': float(res.get('compound_sentence_ratio', 0.0)),
-        'simple_sentence_ratio': float(res.get('simple_sentence_ratio', 0.0)),
-        'sentence_variety_score': float(res.get('sentence_variety_score', 0.0))
+        'total_grammar_errors': total_grammar_errors,
+        'errors_per_100_words': float(errors_per_100),
+        'tense_errors': tense_errors,
+        'agreement_errors': agreement_errors,
+        'article_errors': article_errors,
+        'preposition_errors': preposition_errors,
+        'other_errors': other_errors,
+        'error_examples': errors[:5],
+        'sentence_count': sentence_count,
+        'avg_sentence_length': float(avg_sentence_length),
+        'subordinate_clause_count': subord_count,
+        'subordinate_clause_freq': float(subord_freq),
+        'complex_sentence_ratio': float(complex_ratio),
+        'compound_sentence_ratio': float(compound_ratio),
+        'simple_sentence_ratio': float(simple_ratio),
+        'sentence_variety_score': max(0.0, float(variety_score))
     }
 
 def _empty_grammar() -> dict[str, Any]:
