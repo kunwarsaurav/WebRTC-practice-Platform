@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { ArrowLeft, Clock, User, Mic, MicOff, PhoneOff, SkipForward, FileText } from 'lucide-react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import './style.css'
 
 const ICE_SERVERS = {
@@ -526,5 +527,6 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
+    <SpeedInsights />
   </React.StrictMode>
 )
