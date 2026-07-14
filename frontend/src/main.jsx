@@ -134,6 +134,9 @@ function App() {
       }
       else if (message.type === 'evaluation-ready') {
          setReports(message.reports);
+         if (statusRef.current === 'Processing' && Object.keys(message.reports).length >= 2) {
+             setStatus('ReportReady');
+         }
       }
     };
     wsRef.current.onclose = () => {
@@ -252,6 +255,11 @@ function App() {
           setIsSubmitted(true);
           await uploadAudio(recordedBlobRef.current);
       }
+    } else if (reports && Object.keys(reports).length >= 2) {
+      isProcessingRef.current = false;
+      setStatus('ReportReady');
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'end-call' }));
     } else {
       isProcessingRef.current = false;
       setStatus('Disconnected');
@@ -320,7 +328,70 @@ function App() {
     );
   }
 
+  if (status === 'ReportReady') {
+    return (
+      <div className="app-container">
+        <div className="header">
+          <button className="back-btn" onClick={() => {
+             setStatus('Disconnected');
+             setReports(null);
+             setTopicIndex(0);
+             setSecondsRemaining(SESSION_DURATION);
+             setIsRecording(false);
+             setHasRecorded(false);
+             setIsSubmitted(false);
+             recordedBlobRef.current = null;
+             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+          }}>
+            <ArrowLeft size={20} />
+          </button>
+          <div className="title">Evaluation Reports</div>
+          <div></div>
+        </div>
 
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', overflowY: 'auto', maxHeight: '600px', padding: '10px' }}>
+          {reports && Object.entries(reports).map(([uid, report]) => (
+            <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                 <FileText size={20} color="#3b82f6"/>
+                 {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
+              </h3>
+              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0f172a', marginBottom: '16px' }}>
+                 Band {report.overall}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#475569' }}>
+                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
+                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
+                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
+                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
+              </div>
+
+              {report.user_input && (
+                 <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
+                   <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
+                   <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
+                 </div>
+              )}
+              {report.feedback && typeof report.feedback === 'object' ? (
+                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                   {Object.entries(report.feedback).map(([category, text]) => (
+                     <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                       <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
+                       {text}
+                     </div>
+                   ))}
+                 </div>
+              ) : (
+                 <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                   {report.feedback}
+                 </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">
