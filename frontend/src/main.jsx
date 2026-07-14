@@ -29,6 +29,11 @@ function App() {
   const [topicIndex, setTopicIndex] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(SESSION_DURATION);
   const [reports, setReports] = useState(null);
+  
+  const [isRecording, setIsRecording] = useState(false);
+  const [hasRecorded, setHasRecorded] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const recordedBlobRef = useRef(null);
 
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
@@ -53,13 +58,15 @@ function App() {
           return prev - 1;
         });
       }, 1000);
-
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'inactive') {
-        mediaRecorderRef.current.start(1000);
-      }
     } else {
       clearInterval(timerRef.current);
-      if (status === 'Disconnected') setSecondsRemaining(SESSION_DURATION);
+      if (status === 'Disconnected') {
+        setSecondsRemaining(SESSION_DURATION);
+        setIsRecording(false);
+        setHasRecorded(false);
+        setIsSubmitted(false);
+        recordedBlobRef.current = null;
+      }
     }
     return () => clearInterval(timerRef.current);
   }, [status]);
@@ -89,12 +96,11 @@ function App() {
         }
       });
       const data = await response.json();
-      setReports(data.reports);
-      setStatus('ReportReady');
+      console.log("Evaluation initiated.", data);
     } catch (e) {
       console.error(e);
       alert("Evaluation failed.");
-      setStatus('Disconnected');
+      setIsSubmitted(false);
     }
   };
 
@@ -128,7 +134,14 @@ function App() {
       }
       else if (message.type === 'evaluation-ready') {
          setReports(message.reports);
-         setStatus('ReportReady');
+         // Ensure both users have submitted
+         if (Object.keys(message.reports).length >= 2) {
+             setStatus('ReportReady');
+             // WebRTC cleanup without sending end-call (since both are ready)
+             if (peerConnectionRef.current) peerConnectionRef.current.close();
+             if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
+             if (wsRef.current) wsRef.current.close();
+         }
       }
     };
     wsRef.current.onclose = () => {
@@ -194,6 +207,27 @@ function App() {
     catch (e) { console.error(e); }
   };
 
+  const startRecording = () => {
+    if (!mediaRecorderRef.current) return;
+    audioChunksRef.current = [];
+    mediaRecorderRef.current.start(1000);
+    setIsRecording(true);
+    setHasRecorded(false);
+  };
+
+  const stopRecording = () => {
+    if (!mediaRecorderRef.current) return;
+    mediaRecorderRef.current.stop();
+    setIsRecording(false);
+    setHasRecorded(true);
+  };
+
+  const handleSubmit = async () => {
+    if (!recordedBlobRef.current) return alert("Please record your answer first.");
+    setIsSubmitted(true);
+    await uploadAudio(recordedBlobRef.current);
+  };
+
   const handleJoin = async () => {
     if (!roomId) return alert("Please enter a room ID");
     try {
@@ -207,12 +241,8 @@ function App() {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
 
-      mr.onstop = async () => {
-        if (isProcessingRef.current) {
-          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          await uploadAudio(blob);
-        }
-        audioChunksRef.current = [];
+      mr.onstop = () => {
+        recordedBlobRef.current = new Blob(audioChunksRef.current, { type: 'audio/webm' });
       };
 
       initializePeerConnection();
@@ -222,10 +252,14 @@ function App() {
     }
   };
 
-  const handleLeave = (process = false) => {
+  const handleLeave = async (process = false) => {
     if (process) {
       isProcessingRef.current = true;
       setStatus('Processing');
+      if (!isSubmitted && recordedBlobRef.current) {
+          setIsSubmitted(true);
+          await uploadAudio(recordedBlobRef.current);
+      }
     } else {
       isProcessingRef.current = false;
       setStatus('Disconnected');
@@ -398,6 +432,32 @@ function App() {
       </div>
 
       <div className="controls-section">
+        {status === 'Connected' && !isSubmitted && (
+           <>
+             {!isRecording ? (
+               <button className="control-btn" style={{ background: '#ef4444', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={startRecording}>
+                 Record Answer
+               </button>
+             ) : (
+               <button className="control-btn" style={{ background: '#f59e0b', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={stopRecording}>
+                 Stop Recording
+               </button>
+             )}
+           </>
+        )}
+        
+        {hasRecorded && !isRecording && !isSubmitted && status === 'Connected' && (
+           <button className="control-btn" style={{ background: '#10b981', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={handleSubmit}>
+             Submit Answer
+           </button>
+        )}
+
+        {isSubmitted && status === 'Connected' && (
+           <div style={{ padding: '10px 20px', color: '#10b981', fontWeight: 'bold', background: '#ecfdf5', borderRadius: '8px' }}>
+             Submitted! Waiting for partner...
+           </div>
+        )}
+
         <button className={`control-btn ${isMuted ? 'muted' : ''}`} onClick={toggleMute}>
           {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
         </button>
