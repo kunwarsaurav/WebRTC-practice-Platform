@@ -8,8 +8,7 @@ import json
 import httpx
 import asyncio
 from dotenv import load_dotenv
-from faster_whisper import WhisperModel
-from faster_whisper.audio import decode_audio
+import librosa
 from scorer import init_models, evaluate_pipeline
 load_dotenv()
 app = FastAPI()
@@ -17,8 +16,6 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, 
 rooms: Dict[str, List[WebSocket]] = {}
 client_user_map: Dict[WebSocket, str] = {}
 room_reports: Dict[str, Dict[str, dict]] = {}
-whisper_model = WhisperModel('large-v3', device='cuda', compute_type='float16')
-print('Whisper model loaded.')
 
 @app.on_event('startup')
 async def startup_event():
@@ -89,19 +86,32 @@ async def send_webhook(room_id: str, user_id: str, report: dict):
 
 def process_audio_sync(temp_file_path: str, question: str):
     try:
-        segments_gen, info = whisper_model.transcribe(temp_file_path, beam_size=5, word_timestamps=True)
-        segments_list = []
-        word_timestamps_list = []
-        transcript_text = ''
-        for segment in segments_gen:
-            transcript_text += segment.text + ' '
-            segments_list.append({'start': segment.start, 'end': segment.end, 'text': segment.text})
-            if segment.words:
-                for word in segment.words:
-                    word_timestamps_list.append({'word': word.word, 'start': word.start, 'end': word.end})
-        transcript_text = transcript_text.strip()
-        audio_array = decode_audio(temp_file_path, sampling_rate=16000)
-        sr = 16000
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key or api_key == "your_groq_api_key_here":
+            raise ValueError("GROQ_API_KEY is missing or invalid in .env")
+
+        with open(temp_file_path, "rb") as audio_file:
+            response = httpx.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=[
+                    ("model", "whisper-large-v3"),
+                    ("response_format", "verbose_json"),
+                    ("timestamp_granularities[]", "word"),
+                    ("timestamp_granularities[]", "segment")
+                ],
+                files={"file": (os.path.basename(temp_file_path), audio_file, "audio/webm")},
+                timeout=60.0
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        transcript_text = result.get("text", "").strip()
+        segments_list = result.get("segments", [])
+        word_timestamps_list = result.get("words", [])
+
+        audio_array, sr = librosa.load(temp_file_path, sr=16000)
+        
         report = evaluate_pipeline(transcript=transcript_text, segments=segments_list, word_timestamps=word_timestamps_list, audio_path=temp_file_path, audio_array=audio_array, sample_rate=sr, lang='en-US', question=question)
         return report
     except Exception as e:
