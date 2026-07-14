@@ -134,14 +134,6 @@ function App() {
       }
       else if (message.type === 'evaluation-ready') {
          setReports(message.reports);
-         // Ensure both users have submitted
-         if (Object.keys(message.reports).length >= 2) {
-             setStatus('ReportReady');
-             // WebRTC cleanup without sending end-call (since both are ready)
-             if (peerConnectionRef.current) peerConnectionRef.current.close();
-             if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => t.stop());
-             if (wsRef.current) wsRef.current.close();
-         }
       }
     };
     wsRef.current.onclose = () => {
@@ -253,7 +245,7 @@ function App() {
   };
 
   const handleLeave = async (process = false) => {
-    if (process) {
+    if (process && (!reports || Object.keys(reports).length < 2)) {
       isProcessingRef.current = true;
       setStatus('Processing');
       if (!isSubmitted && recordedBlobRef.current) {
@@ -263,6 +255,13 @@ function App() {
     } else {
       isProcessingRef.current = false;
       setStatus('Disconnected');
+      setReports(null);
+      setTopicIndex(0);
+      setSecondsRemaining(SESSION_DURATION);
+      setIsRecording(false);
+      setHasRecorded(false);
+      setIsSubmitted(false);
+      recordedBlobRef.current = null;
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -321,25 +320,31 @@ function App() {
     );
   }
 
-  if (status === 'ReportReady') {
-    return (
-      <div className="app-container">
-        <div className="header">
-          <button className="back-btn" onClick={() => {
-             setStatus('Disconnected');
-             setReports(null);
-             setTopicIndex(0);
-             setSecondsRemaining(SESSION_DURATION);
-             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
-          }}>
-            <ArrowLeft size={20} />
-          </button>
-          <div className="title">Evaluation Reports</div>
-          <div></div>
-        </div>
 
-        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-          {reports && Object.entries(reports).map(([uid, report]) => (
+
+  return (
+    <div className="app-container">
+      <div className="header">
+        <button className="back-btn" onClick={() => handleLeave(true)}><ArrowLeft size={20} /></button>
+        <div className="title">Practice Session</div>
+        <div className="timer"><Clock size={18} /> <span>{formatTime(secondsRemaining)}</span></div>
+      </div>
+
+      <div className="avatars-section">
+        <div className="avatar-wrapper">
+          <div className="avatar you"><User size={28} /></div>
+          <div className="avatar-label">You</div>
+        </div>
+        <div className="avatar-line"></div>
+        <div className="avatar-wrapper">
+          <div className={`avatar partner ${status === 'Waiting' ? 'opacity-50' : ''}`}><User size={28} /></div>
+          <div className="avatar-label">Partner</div>
+        </div>
+      </div>
+
+      {reports && Object.keys(reports).length >= 2 ? (
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', overflowY: 'auto', maxHeight: '500px', padding: '10px' }}>
+          {Object.entries(reports).map(([uid, report]) => (
             <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                  <FileText size={20} color="#3b82f6"/>
@@ -378,43 +383,21 @@ function App() {
             </div>
           ))}
         </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="app-container">
-      <div className="header">
-        <button className="back-btn" onClick={() => handleLeave(true)}><ArrowLeft size={20} /></button>
-        <div className="title">Practice Session</div>
-        <div className="timer"><Clock size={18} /> <span>{formatTime(secondsRemaining)}</span></div>
-      </div>
-
-      <div className="avatars-section">
-        <div className="avatar-wrapper">
-          <div className="avatar you"><User size={28} /></div>
-          <div className="avatar-label">You</div>
-        </div>
-        <div className="avatar-line"></div>
-        <div className="avatar-wrapper">
-          <div className={`avatar partner ${status === 'Waiting' ? 'opacity-50' : ''}`}><User size={28} /></div>
-          <div className="avatar-label">Partner</div>
-        </div>
-      </div>
-
-      <div className="topic-card">
-        <div className="topic-header">CURRENT TOPIC</div>
-        <div className="topic-content">{TOPICS[topicIndex]}</div>
-        <div className="topic-footer">
-          <span>Topic {topicIndex + 1} of {TOPICS.length}</span>
-          <div className="dots">
-            {TOPICS.map((_, i) => <div key={i} className={`dot ${i === topicIndex ? 'active' : ''}`}></div>)}
+      ) : (
+        <div className="topic-card">
+          <div className="topic-header">CURRENT TOPIC</div>
+          <div className="topic-content">{TOPICS[topicIndex]}</div>
+          <div className="topic-footer">
+            <span>Topic {topicIndex + 1} of {TOPICS.length}</span>
+            <div className="dots">
+              {TOPICS.map((_, i) => <div key={i} className={`dot ${i === topicIndex ? 'active' : ''}`}></div>)}
+            </div>
           </div>
+          <button className="next-topic-btn" onClick={() => setTopicIndex(p => (p + 1) % TOPICS.length)}>
+            Next <span style={{ fontSize: '18px', marginLeft: '2px', lineHeight: 1 }}>›</span>
+          </button>
         </div>
-        <button className="next-topic-btn" onClick={() => setTopicIndex(p => (p + 1) % TOPICS.length)}>
-          Next <span style={{ fontSize: '18px', marginLeft: '2px', lineHeight: 1 }}>›</span>
-        </button>
-      </div>
+      )}
 
       <div className="visualizer-section">
         <div className="visualizer-wrapper">
@@ -452,9 +435,9 @@ function App() {
            </button>
         )}
 
-        {isSubmitted && status === 'Connected' && (
+        {isSubmitted && status === 'Connected' && (!reports || Object.keys(reports).length < 2) && (
            <div style={{ padding: '10px 20px', color: '#10b981', fontWeight: 'bold', background: '#ecfdf5', borderRadius: '8px' }}>
-             Submitted! Waiting for partner...
+             AI is evaluating... You can continue talking with your partner!
            </div>
         )}
 
