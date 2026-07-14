@@ -1,6 +1,8 @@
 import argparse
 import math
 import os
+import httpx
+import json
 import re
 import sys
 import threading
@@ -15,35 +17,41 @@ os.environ['HF_HUB_DISABLE_SYMLINKS'] = '1'
 import librosa
 import numpy as np
 import parselmouth  # type: ignore
-import spacy
-import language_tool_python
 from parselmouth.praat import call  # type: ignore
 
-def cosine_similarity(a, b):
-    a, b = (np.array(a), np.array(b))
-    norms = np.linalg.norm(a, axis=1, keepdims=True) * np.linalg.norm(b, axis=1)
-    return np.dot(a, b.T) / np.clip(norms, 1e-10, None)
-from wordfreq import zipf_frequency
-_nlp = None
 
-def _get_nlp():
-    global _nlp
-    if _nlp is None:
-        _nlp = spacy.load('en_core_web_sm')
-    return _nlp
+
 
 def init_models():
-    print('[INIT] Booting up all AI models (Cold Start)...', file=sys.stderr)
-    _get_nlp()
-    _get_lt('en-GB')
-    print('[INIT] Pre-loading SentenceTransformer model…', file=sys.stderr)
+    print('[INIT] No heavy models to load! Using Groq API for NLP.', file=sys.stderr)
+
+def _query_groq_llm(system_prompt: str, user_prompt: str) -> dict:
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        return {}
+    
     try:
-        from sentence_transformers import SentenceTransformer
-        global _st_model
-        _st_model = SentenceTransformer('all-MiniLM-L6-v2')
-    except ImportError:
-        pass
-    print('[INIT] All models successfully loaded into RAM/VRAM!', file=sys.stderr)
+        response = httpx.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama3-70b-8192",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.0
+            },
+            timeout=30.0
+        )
+        response.raise_for_status()
+        result = response.json()
+        return json.loads(result["choices"][0]["message"]["content"])
+    except Exception as e:
+        print(f"Groq API Error: {e}", file=sys.stderr)
+        return {}
+
 FILLER_WORDS = {'uh', 'um', 'er', 'erm', 'hmm', 'hm', 'ah', 'oh', 'like', 'you know', 'i mean', 'sort of', 'kind of', 'basically', 'literally', 'actually', 'right'}
 FILLER_PHRASES = {'you know', 'i mean', 'sort of', 'kind of'}
 DISCOURSE_MARKERS = {'however', 'therefore', 'moreover', 'in addition', 'furthermore', 'additionally', 'consequently', 'nevertheless', 'nonetheless', 'on the other hand', 'on the contrary', 'in contrast', 'for example', 'for instance', 'such as', 'in particular', 'firstly', 'secondly', 'finally', 'in conclusion', 'to sum up', 'in other words', 'that is to say', 'as a result', 'because of this', 'well', 'actually', 'basically', 'naturally', 'clearly', 'obviously', 'certainly', 'indeed', 'of course'}
@@ -149,152 +157,105 @@ PARAPHRASE_PHRASES = {'in other words', 'that is to say', 'put differently', 'wh
 STRONG_COLLOCATIONS = {('make', 'decision'), ('make', 'progress'), ('make', 'difference'), ('make', 'contribution'), ('make', 'effort'), ('make', 'mistake'), ('take', 'advantage'), ('take', 'responsibility'), ('take', 'action'), ('take', 'part'), ('take', 'place'), ('take', 'approach'), ('give', 'opportunity'), ('give', 'priority'), ('give', 'impression'), ('pay', 'attention'), ('pay', 'price'), ('pay', 'role'), ('raise', 'awareness'), ('raise', 'concern'), ('raise', 'question'), ('carry', 'out'), ('carry', 'responsibility'), ('come', 'across'), ('come', 'conclusion'), ('deal', 'with'), ('deal', 'issue'), ('look', 'forward'), ('look', 'issue'), ('play', 'role'), ('play', 'part'), ('face', 'challenge'), ('face', 'consequence'), ('meet', 'demand'), ('meet', 'need'), ('reach', 'goal'), ('reach', 'conclusion'), ('reach', 'agreement'), ('pose', 'threat'), ('pose', 'challenge'), ('build', 'relationship'), ('build', 'community'), ('develop', 'skill'), ('develop', 'understanding'), ('provide', 'opportunity'), ('provide', 'support'), ('provide', 'access'), ('gain', 'experience'), ('gain', 'knowledge'), ('gain', 'access'), ('achieve', 'goal'), ('achieve', 'balance'), ('achieve', 'success'), ('address', 'issue'), ('address', 'problem'), ('address', 'concern'), ('have', 'impact'), ('have', 'effect'), ('have', 'influence'), ('significant', 'impact'), ('significant', 'role'), ('significant', 'increase'), ('major', 'challenge'), ('major', 'issue'), ('major', 'factor'), ('crucial', 'role'), ('crucial', 'factor'), ('key', 'factor'), ('key', 'role'), ('key', 'issue'), ('vital', 'role'), ('vital', 'importance'), ('widespread', 'use'), ('widespread', 'concern'), ('growing', 'concern'), ('growing', 'number'), ('growing', 'demand'), ('increasing', 'number'), ('increasing', 'pressure'), ('strong', 'influence'), ('strong', 'evidence'), ('critical', 'thinking'), ('critical', 'issue'), ('global', 'problem'), ('global', 'issue'), ('global', 'community'), ('positive', 'impact'), ('negative', 'impact'), ('long', 'term'), ('short', 'term'), ('high', 'quality'), ('high', 'standard'), ('social', 'media'), ('social', 'issue'), ('social', 'problem'), ('social', 'responsibility'), ('social', 'inequality'), ('climate', 'change'), ('climate', 'crisis'), ('public', 'transport'), ('public', 'health'), ('public', 'sector'), ('economic', 'growth'), ('economic', 'development'), ('economic', 'impact'), ('human', 'rights'), ('human', 'nature'), ('human', 'development'), ('mental', 'health'), ('mental', 'wellbeing'), ('living', 'standard'), ('standard', 'living'), ('quality', 'life'), ('way', 'life'), ('government', 'policy'), ('education', 'system'), ('health', 'care'), ('job', 'opportunity'), ('work', 'life'), ('life', 'expectancy'), ('natural', 'environment'), ('natural', 'resource'), ('population', 'growth'), ('urban', 'development'), ('technological', 'advancement'), ('scientific', 'research'), ('financial', 'support'), ('financial', 'crisis')}
 
 def analyze_lexical(transcript: str) -> dict[str, Any]:
-    nlp = _get_nlp()
-    doc = nlp(transcript)
-    text_lower = transcript.lower()
-    all_tokens = [t for t in doc if not t.is_punct and (not t.is_space)]
-    total_words = len(all_tokens)
-    if total_words == 0:
-        return _empty_features()
-    lemmas = [t.lemma_.lower() for t in all_tokens if t.lemma_.isalpha()]
-    unique_lemmas = set(lemmas)
-    content_tokens = [t for t in all_tokens if t.pos_ in CONTENT_POS]
-    content_lemmas = [t.lemma_.lower() for t in content_tokens if t.lemma_.isalpha()]
-    ttr = len(unique_lemmas) / len(lemmas) if lemmas else 0.0
-    mattr = _moving_average_ttr(lemmas, MATTR_WINDOW)
-    lexical_density = len(content_tokens) / total_words if total_words else 0.0
-    adv_count, adv_words = _advanced_vocabulary(lemmas)
-    adv_ratio = adv_count / len(lemmas) if lemmas else 0.0
-    content_freq = Counter(content_lemmas)
-    high_repeat_words = {w: c for w, c in content_freq.items() if c >= 3 and len(w) > 3}
-    repetition_frequency = len(high_repeat_words)
-    paraphrase_found = any((phrase in text_lower for phrase in PARAPHRASE_PHRASES))
-    paraphrase_count = sum((text_lower.count(phrase) for phrase in PARAPHRASE_PHRASES))
-    avg_word_length = sum((len(t.text) for t in all_tokens)) / total_words if total_words else 0.0
-    collocation_count = _detect_collocations(content_lemmas)
-    return {'total_words': total_words, 'unique_words': len(unique_lemmas), 'type_token_ratio': round(ttr, 4), 'moving_avg_ttr': round(mattr, 4), 'lexical_density': round(lexical_density, 4), 'advanced_vocab_count': adv_count, 'advanced_vocab_ratio': round(adv_ratio, 4), 'advanced_vocab_examples': adv_words[:10], 'high_repetition_words': list(high_repeat_words.keys())[:10], 'repetition_frequency': repetition_frequency, 'paraphrase_indicator': paraphrase_found, 'paraphrase_count': paraphrase_count, 'avg_word_length': round(avg_word_length, 2), 'collocations_detected': collocation_count}
+    if not transcript.strip(): return _empty_lexical()
+    
+    sys_prompt = """You are an expert IELTS examiner analyzing a speaker's lexical resource.
+Return a JSON object with the exact keys:
+{
+  "total_words": 0,
+  "unique_words": 0,
+  "type_token_ratio": 0.0,
+  "moving_avg_ttr": 0.0,
+  "lexical_density": 0.0,
+  "advanced_vocab_count": 0,
+  "advanced_vocab_ratio": 0.0,
+  "advanced_vocab_examples": ["word1"],
+  "high_repetition_words": ["word2"],
+  "repetition_frequency": 0,
+  "paraphrase_indicator": false,
+  "paraphrase_count": 0,
+  "avg_word_length": 0.0,
+  "collocations_detected": 0
+}
+Ensure all values are appropriate numerical/boolean types."""
+    
+    res = _query_groq_llm(sys_prompt, transcript)
+    if not res: return _empty_lexical()
+    
+    return {
+        'total_words': res.get('total_words', len(transcript.split())),
+        'unique_words': res.get('unique_words', 0),
+        'type_token_ratio': float(res.get('type_token_ratio', 0.0)),
+        'moving_avg_ttr': float(res.get('moving_avg_ttr', 0.0)),
+        'lexical_density': float(res.get('lexical_density', 0.0)),
+        'advanced_vocab_count': int(res.get('advanced_vocab_count', 0)),
+        'advanced_vocab_ratio': float(res.get('advanced_vocab_ratio', 0.0)),
+        'advanced_vocab_examples': res.get('advanced_vocab_examples', []),
+        'high_repetition_words': res.get('high_repetition_words', []),
+        'repetition_frequency': int(res.get('repetition_frequency', 0)),
+        'paraphrase_indicator': bool(res.get('paraphrase_indicator', False)),
+        'paraphrase_count': int(res.get('paraphrase_count', 0)),
+        'avg_word_length': float(res.get('avg_word_length', 0.0)),
+        'collocations_detected': int(res.get('collocations_detected', 0))
+    }
 
-def _moving_average_ttr(lemmas: list[str], window: int) -> float:
-    if len(lemmas) < window:
-        return len(set(lemmas)) / len(lemmas) if lemmas else 0.0
-    ttrs = []
-    for i in range(len(lemmas) - window + 1):
-        window_slice = lemmas[i:i + window]
-        ttrs.append(len(set(window_slice)) / window)
-    return sum(ttrs) / len(ttrs)
-
-def _advanced_vocabulary(lemmas: list[str]) -> tuple[int, list[str]]:
-    advanced = []
-    seen = set()
-    for lemma in lemmas:
-        if lemma in seen or not lemma.isalpha() or len(lemma) < 4:
-            continue
-        seen.add(lemma)
-        freq = zipf_frequency(lemma, 'en')
-        if 0 < freq < ADVANCED_VOCAB_ZIPF_THRESHOLD:
-            advanced.append(lemma)
-    return (len(advanced), advanced)
-
-def _detect_collocations(content_lemmas: list[str]) -> int:
-    bigrams = set(zip(content_lemmas, content_lemmas[1:]))
-    matches = bigrams & STRONG_COLLOCATIONS
-    return len(matches)
-
-def _empty_features() -> dict[str, Any]:
+def _empty_lexical() -> dict[str, Any]:
     return {'total_words': 0, 'unique_words': 0, 'type_token_ratio': 0.0, 'moving_avg_ttr': 0.0, 'lexical_density': 0.0, 'advanced_vocab_count': 0, 'advanced_vocab_ratio': 0.0, 'advanced_vocab_examples': [], 'high_repetition_words': [], 'repetition_frequency': 0, 'paraphrase_indicator': False, 'paraphrase_count': 0, 'avg_word_length': 0.0, 'collocations_detected': 0}
-_lt_tool = None
 
-def _get_lt(lang: str='en-GB'):
-    global _lt_tool
-    if _lt_tool is None:
-        lt_url = os.environ.get('LANGUAGETOOL_URL')
-        if lt_url:
-            _lt_tool = language_tool_python.LanguageTool(lang, remote_server=lt_url)
-        else:
-            _lt_tool = language_tool_python.LanguageTool(lang)
-    return _lt_tool
 TENSE_RULE_IDS = {'ENGLISH_WORD_REPEAT_RULE', 'PAST_TENSE_WITH_WOULD', 'VERB_TENSE', 'PERFECT_TENSE'}
 AGREEMENT_RULE_IDS = {'AGREEMENT_SENT_START', 'PRP_VB', 'DOES_X', 'HE_VERB_AGR', 'SV_AGREEMENT'}
 ARTICLE_RULE_IDS = {'EN_A_VS_AN', 'THE_SUPERLATIVE', 'MISSING_ARTICLE', 'ARTICLE_MISSING', 'ARTICLE_REDUNDANT'}
 PREPOSITION_RULE_IDS = {'AT_THE_WEEKEND', 'PREPOSITION_AFTER', 'ON_THE_WAY', 'IN_TIME_PERIOD', 'PREP_REDUNDANT'}
 
 def analyze_grammar(transcript: str, lang: str='en-GB') -> dict[str, Any]:
-    nlp = _get_nlp()
-    lt = _get_lt(lang)
-    doc = nlp(transcript)
-    sentences = list(doc.sents)
-    if not sentences:
-        return _empty_features()
-    word_count = sum((1 for t in doc if not t.is_punct and (not t.is_space)))
-    lt_matches = lt.check(transcript)
-    error_breakdown = _classify_errors(lt_matches)
-    total_errors = len(lt_matches)
-    errors_per_100 = total_errors / word_count * 100 if word_count else 0.0
-    sentence_stats = _analyze_sentences(sentences)
-    return {'total_grammar_errors': total_errors, 'errors_per_100_words': round(errors_per_100, 2), 'tense_errors': error_breakdown['tense'], 'agreement_errors': error_breakdown['agreement'], 'article_errors': error_breakdown['article'], 'preposition_errors': error_breakdown['preposition'], 'other_errors': error_breakdown['other'], 'error_examples': error_breakdown['examples'][:5], 'sentence_count': sentence_stats['count'], 'avg_sentence_length': sentence_stats['avg_length'], 'subordinate_clause_count': sentence_stats['subordinate_clauses'], 'subordinate_clause_freq': sentence_stats['subordinate_freq'], 'complex_sentence_ratio': sentence_stats['complex_ratio'], 'compound_sentence_ratio': sentence_stats['compound_ratio'], 'simple_sentence_ratio': sentence_stats['simple_ratio'], 'sentence_variety_score': sentence_stats['variety_score']}
+    if not transcript.strip(): return _empty_grammar()
 
-def _classify_errors(matches: list) -> dict:
-    counts = defaultdict(int)
-    examples = []
-    for match in matches:
-        rule_id = match.rule_id
-        category = match.category if hasattr(match, 'category') else ''
-        message = match.message
-        if _matches_any(rule_id, TENSE_RULE_IDS) or 'tense' in message.lower():
-            counts['tense'] += 1
-        elif _matches_any(rule_id, AGREEMENT_RULE_IDS) or 'agreement' in message.lower():
-            counts['agreement'] += 1
-        elif _matches_any(rule_id, ARTICLE_RULE_IDS) or 'article' in message.lower():
-            counts['article'] += 1
-        elif _matches_any(rule_id, PREPOSITION_RULE_IDS) or 'preposition' in message.lower():
-            counts['preposition'] += 1
-        else:
-            counts['other'] += 1
-        if len(examples) < 5:
-            examples.append({'rule': rule_id, 'message': message, 'context': match.context if hasattr(match, 'context') else ''})
-    return {'tense': counts['tense'], 'agreement': counts['agreement'], 'article': counts['article'], 'preposition': counts['preposition'], 'other': counts['other'], 'examples': examples}
+    sys_prompt = """You are an expert IELTS examiner analyzing a speaker's grammar.
+Return a JSON object with the exact keys:
+{
+  "total_grammar_errors": 0,
+  "errors_per_100_words": 0.0,
+  "tense_errors": 0,
+  "agreement_errors": 0,
+  "article_errors": 0,
+  "preposition_errors": 0,
+  "other_errors": 0,
+  "error_examples": [{"rule": "RULE", "message": "msg", "context": "ctx"}],
+  "sentence_count": 0,
+  "avg_sentence_length": 0.0,
+  "subordinate_clause_count": 0,
+  "subordinate_clause_freq": 0.0,
+  "complex_sentence_ratio": 0.0,
+  "compound_sentence_ratio": 0.0,
+  "simple_sentence_ratio": 0.0,
+  "sentence_variety_score": 0.0
+}"""
+    
+    res = _query_groq_llm(sys_prompt, transcript)
+    if not res: return _empty_grammar()
+    
+    return {
+        'total_grammar_errors': int(res.get('total_grammar_errors', 0)),
+        'errors_per_100_words': float(res.get('errors_per_100_words', 0.0)),
+        'tense_errors': int(res.get('tense_errors', 0)),
+        'agreement_errors': int(res.get('agreement_errors', 0)),
+        'article_errors': int(res.get('article_errors', 0)),
+        'preposition_errors': int(res.get('preposition_errors', 0)),
+        'other_errors': int(res.get('other_errors', 0)),
+        'error_examples': res.get('error_examples', []),
+        'sentence_count': int(res.get('sentence_count', 0)),
+        'avg_sentence_length': float(res.get('avg_sentence_length', 0.0)),
+        'subordinate_clause_count': int(res.get('subordinate_clause_count', 0)),
+        'subordinate_clause_freq': float(res.get('subordinate_clause_freq', 0.0)),
+        'complex_sentence_ratio': float(res.get('complex_sentence_ratio', 0.0)),
+        'compound_sentence_ratio': float(res.get('compound_sentence_ratio', 0.0)),
+        'simple_sentence_ratio': float(res.get('simple_sentence_ratio', 0.0)),
+        'sentence_variety_score': float(res.get('sentence_variety_score', 0.0))
+    }
 
-def _matches_any(value: str, rule_set: set) -> bool:
-    value_upper = value.upper()
-    return any((value_upper == r or value_upper.startswith(r) for r in rule_set))
-
-def _analyze_sentences(sentences) -> dict:
-    SUBORDINATE_DEPS = {'advcl', 'relcl', 'csubj', 'ccomp', 'xcomp', 'acl'}
-    COORD_DEP = 'cc'
-    counts = {'simple': 0, 'compound': 0, 'complex': 0}
-    sentence_lengths = []
-    total_subordinate_clauses = 0
-    count = 0
-    for sent in sentences:
-        tokens = [t for t in sent if not t.is_punct and (not t.is_space)]
-        if not tokens:
-            continue
-        count += 1
-        sentence_lengths.append(len(tokens))
-        deps = {t.dep_ for t in sent}
-        has_subordinate = bool(deps & SUBORDINATE_DEPS)
-        has_coordination = COORD_DEP in deps
-        subordinate_in_sent = sum((1 for t in sent if t.dep_ in SUBORDINATE_DEPS))
-        total_subordinate_clauses += subordinate_in_sent
-        if has_subordinate:
-            counts['complex'] += 1
-        elif has_coordination:
-            counts['compound'] += 1
-        else:
-            counts['simple'] += 1
-    if count == 0:
-        return {'count': 0, 'avg_length': 0.0, 'subordinate_clauses': 0, 'subordinate_freq': 0.0, 'complex_ratio': 0.0, 'compound_ratio': 0.0, 'simple_ratio': 0.0, 'variety_score': 0.0}
-    avg_length = sum(sentence_lengths) / count
-    subordinate_freq = total_subordinate_clauses / count
-    complex_ratio = counts['complex'] / count
-    compound_ratio = counts['compound'] / count
-    simple_ratio = counts['simple'] / count
-    types_present = sum((1 for v in counts.values() if v > 0))
-    variety_score = round(types_present / 3.0, 3)
-    return {'count': count, 'avg_length': round(avg_length, 2), 'subordinate_clauses': total_subordinate_clauses, 'subordinate_freq': round(subordinate_freq, 3), 'complex_ratio': round(complex_ratio, 3), 'compound_ratio': round(compound_ratio, 3), 'simple_ratio': round(simple_ratio, 3), 'variety_score': variety_score}
-
-def _empty_features() -> dict[str, Any]:
+def _empty_grammar() -> dict[str, Any]:
     return {'total_grammar_errors': 0, 'errors_per_100_words': 0.0, 'tense_errors': 0, 'agreement_errors': 0, 'article_errors': 0, 'preposition_errors': 0, 'other_errors': 0, 'error_examples': [], 'sentence_count': 0, 'avg_sentence_length': 0.0, 'subordinate_clause_count': 0, 'subordinate_clause_freq': 0.0, 'complex_sentence_ratio': 0.0, 'compound_sentence_ratio': 0.0, 'simple_sentence_ratio': 0.0, 'sentence_variety_score': 0.0}
+
 PITCH_FLOOR_HZ = 75.0
 PITCH_CEILING_HZ = 500.0
 CHUNK_PAUSE_THRESHOLD_SEC = 0.4
@@ -417,49 +378,35 @@ def _empty_prosodic(error: str='') -> dict[str, Any]:
 
 def _empty_rhythmic() -> dict[str, Any]:
     return {'word_duration_variance': 0.0, 'long_word_ratio': 0.0, 'chunk_boundary_count': 0, 'avg_words_per_chunk': 0.0}
-_st_model = None
-
-def _get_st_model():
-    global _st_model
-    if _st_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            _st_model = SentenceTransformer('all-MiniLM-L6-v2')
-        except ImportError:
-            _st_model = None
-    return _st_model
 OFF_TOPIC_THRESHOLD = 0.35
 TANGENTIAL_THRESHOLD = 0.5
 
 def analyze_relevance(transcript: str, question: str) -> dict[str, Any]:
-    if not transcript.strip() or not question.strip():
-        return _empty_features()
-    nlp = _get_nlp()
-    st_model = _get_st_model()
-    if not st_model:
-        return _empty_features()
-    try:
-        q_emb = st_model.encode(question)
-        t_emb = st_model.encode(transcript)
-        overall_sim = cosine_similarity([q_emb], [t_emb])[0][0]
-    except Exception:
-        overall_sim = 0.0
-    max_sent_sim = overall_sim
-    doc = nlp(transcript)
-    sentences = [sent.text.strip() for sent in doc.sents if len(sent.text.split()) > 3]
-    if sentences:
-        try:
-            s_embs = st_model.encode(sentences)
-            sims = cosine_similarity([q_emb], s_embs)[0]
-            max_sent_sim = max(sims)
-        except Exception:
-            pass
-    is_off_topic = float(max_sent_sim) < OFF_TOPIC_THRESHOLD
-    is_tangential = OFF_TOPIC_THRESHOLD <= float(max_sent_sim) < TANGENTIAL_THRESHOLD
-    return {'overall_similarity': round(float(overall_sim), 3), 'max_sentence_similarity': round(float(max_sent_sim), 3), 'is_off_topic': is_off_topic, 'is_tangential': is_tangential, 'question_provided': True}
+    if not transcript.strip() or not question.strip(): return _empty_relevance()
+        
+    sys_prompt = """You are an AI assistant analyzing if a spoken transcript answers the provided question.
+Return a JSON object with the exact keys:
+{
+  "overall_similarity": 0.0,
+  "max_sentence_similarity": 0.0,
+  "is_off_topic": false,
+  "is_tangential": false,
+  "question_provided": true
+}"""
 
-def _empty_features() -> dict[str, Any]:
-    return {'overall_similarity': 0.0, 'max_sentence_similarity': 0.0, 'is_off_topic': False, 'question_provided': False}
+    res = _query_groq_llm(sys_prompt, f"Question: {question}\\n\\nTranscript: {transcript}")
+    if not res: return _empty_relevance()
+    return {
+        'overall_similarity': float(res.get('overall_similarity', 0.0)),
+        'max_sentence_similarity': float(res.get('max_sentence_similarity', 0.0)),
+        'is_off_topic': bool(res.get('is_off_topic', False)),
+        'is_tangential': bool(res.get('is_tangential', False)),
+        'question_provided': True
+    }
+
+def _empty_relevance() -> dict[str, Any]:
+    return {'overall_similarity': 0.0, 'max_sentence_similarity': 0.0, 'is_off_topic': False, 'is_tangential': False, 'question_provided': False}
+
 
 def compute_bands(fluency_features: dict, lexical_features: dict, grammar_features: dict, pronunciation_features: dict, relevance_features: dict, exam_part: int=1) -> dict[str, float]:
     fluency_band = _score_fluency(fluency_features)
@@ -928,7 +875,7 @@ def evaluate_pipeline(transcript: str, segments: list, word_timestamps: list, au
         if question:
             print('    → Topic Relevance…', file=sys.stderr)
             return analyze_relevance(transcript, question)
-        return _empty_features()
+        return {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         f_fluency = pool.submit(_run_fluency)
         f_lexical = pool.submit(_run_lexical)

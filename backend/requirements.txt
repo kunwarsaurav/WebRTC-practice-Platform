@@ -4,9 +4,5 @@ websockets>=13.0.0
 python-multipart
 python-dotenv
 librosa
-spacy
-language-tool-python
 praat-parselmouth
-sentence-transformers
-wordfreq
 httpx
