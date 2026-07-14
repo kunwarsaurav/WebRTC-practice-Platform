@@ -94,12 +94,11 @@ def process_audio_sync(temp_file_path: str, question: str):
             response = httpx.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {api_key}"},
-                data=[
-                    ("model", "whisper-large-v3"),
-                    ("response_format", "verbose_json"),
-                    ("timestamp_granularities[]", "word"),
-                    ("timestamp_granularities[]", "segment")
-                ],
+                data={
+                    "model": "whisper-large-v3",
+                    "response_format": "verbose_json",
+                    "timestamp_granularities[]": ["word", "segment"]
+                },
                 files={"file": (os.path.basename(temp_file_path), audio_file, "audio/webm")},
                 timeout=60.0
             )
