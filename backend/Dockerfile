@@ -11,7 +11,7 @@ RUN python -m spacy download en_core_web_sm || true
 
 COPY . .
 
-# Hugging Face Spaces exposes port 7860 by default
-EXPOSE 7860
+# Render expects the web service to bind to the $PORT environment variable (defaults to 10000)
+EXPOSE 10000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"
