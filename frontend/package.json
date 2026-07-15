@@ -1,5 +1,6 @@
 {
   "name": "frontend",
+  "description": "Frontend for WebRTC practice",
   "private": true,
   "version": "0.0.0",
   "type": "module",
