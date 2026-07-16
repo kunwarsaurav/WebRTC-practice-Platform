@@ -120,11 +120,8 @@ function App() {
       else if (message.type === 'answer') await handleAnswer(message.sdp);
       else if (message.type === 'ice-candidate') await handleNewICECandidateMsg(message.candidate);
       else if (message.type === 'user-left') {
-
         if (statusRef.current === 'Connected') {
           handleLeave(true);
-        } else {
-          setStatus('Waiting');
         }
       }
       else if (message.type === 'end-call') {
@@ -231,7 +228,7 @@ function App() {
         audio: {
           echoCancellation: true,  // Enable echo cancellation
           noiseSuppression: true,    // Enable noise suppression
-          autoGainControl: true,    // Enable auto gain control
+          autoGainControl: false,    // Enable auto gain control
           sampleRate: 48000,
           channelCount: 1
         }, 
