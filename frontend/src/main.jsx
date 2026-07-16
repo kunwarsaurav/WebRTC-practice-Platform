@@ -112,10 +112,19 @@ function App() {
     const wsUrl = `${protocol}://${cleanUrl}/ws/${roomId}?userId=${userIdRef.current}`;
 
     wsRef.current = new WebSocket(wsUrl);
-    wsRef.current.onopen = () => setStatus('Waiting');
+    let pingInterval;
+    wsRef.current.onopen = () => {
+      setStatus('Waiting');
+      pingInterval = setInterval(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 30000);
+    };
 
     wsRef.current.onmessage = async (event) => {
       const message = JSON.parse(event.data);
+      if (message.type === 'ping') return;
       if (message.type === 'user-joined') createOffer();
       else if (message.type === 'offer') await handleOffer(message.sdp);
       else if (message.type === 'answer') await handleAnswer(message.sdp);
@@ -141,6 +150,7 @@ function App() {
       }
     };
     wsRef.current.onclose = () => {
+      clearInterval(pingInterval);
       if (statusRef.current === 'Connected' || statusRef.current === 'Waiting') {
         setStatus('Disconnected');
       }
