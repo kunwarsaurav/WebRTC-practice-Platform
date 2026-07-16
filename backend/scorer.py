@@ -182,12 +182,17 @@ def analyze_lexical(transcript: str) -> dict[str, Any]:
     sys_prompt = """You are an expert IELTS examiner analyzing a speaker's lexical resource.
 Return a JSON object with the exact keys:
 {
-  "advanced_vocab_examples": ["word1", "word2"],
-  "high_repetition_words": ["word3", "word4"],
+  "advanced_vocab_examples": [],
+  "high_repetition_words": [],
   "paraphrase_count": 0,
   "collocations_detected": 0
 }
-Extract the list of advanced English vocabulary words used, the list of words that are repetitively overused, the number of times they successfully paraphrased, and the number of strong collocations or idiomatic phrases used. Only output the JSON object."""
+CRITICAL INSTRUCTIONS:
+1. "advanced_vocab_examples": You MUST extract and list EVERY SINGLE advanced, less common, or idiomatic word/phrase used in the transcript. Do not just provide 2 examples. If there are 15 advanced words, list all 15.
+2. "high_repetition_words": List any content words that the speaker overused repetitively.
+3. "paraphrase_count": Number of times the speaker successfully paraphrased or reformulated their ideas.
+4. "collocations_detected": Total count of strong, natural word pairings (e.g. "make a decision", "environmental impact") used. Count every single occurrence.
+Only output the JSON object."""
     
     res = _query_groq_llm(sys_prompt, transcript)
     if not res: return _empty_lexical()
@@ -235,17 +240,22 @@ def analyze_grammar(transcript: str, lang: str='en-GB') -> dict[str, Any]:
     
     avg_sentence_length = total_words / sentence_count
 
-    sys_prompt = """You are an expert IELTS examiner analyzing a speaker's grammar.
+    sys_prompt = f"""You are an expert IELTS examiner analyzing a speaker's grammar.
+The transcript has {sentence_count} sentences.
 Return a JSON object with the exact keys:
-{
-  "grammar_errors": [{"type": "tense", "message": "msg", "context": "ctx"}],
+{{
+  "grammar_errors": [{{"type": "tense", "message": "msg", "context": "ctx"}}],
   "complex_sentence_count": 0,
   "compound_sentence_count": 0,
   "simple_sentence_count": 0,
   "subordinate_clause_count": 0
-}
+}}
+CRITICAL INSTRUCTIONS:
+1. "grammar_errors": You MUST find and list EVERY SINGLE grammatical error in the transcript. Look carefully for tense, agreement, article, and preposition errors. Do not stop at just one or two examples.
+2. Ensure that complex_sentence_count + compound_sentence_count + simple_sentence_count exactly equals {sentence_count}.
+3. "subordinate_clause_count": Count every single subordinate clause (e.g., clauses starting with because, which, that, although).
 For grammar_errors, the "type" must be exactly one of: "tense", "agreement", "article", "preposition", or "other".
-Count the number of complex sentences, compound sentences, simple sentences, and total subordinate clauses. Only output the JSON object."""
+Only output the JSON object."""
     
     res = _query_groq_llm(sys_prompt, transcript)
     if not res: return _empty_grammar()
@@ -433,7 +443,13 @@ Return a JSON object with the exact keys:
   "is_off_topic": false,
   "is_tangential": false,
   "question_provided": true
-}"""
+}
+CRITICAL INSTRUCTIONS:
+1. "overall_similarity": A float between 0.0 and 1.0 representing the semantic cosine similarity between the question and the transcript. 0.0 is completely irrelevant, 1.0 is a perfect match.
+2. "max_sentence_similarity": The highest similarity score (0.0 to 1.0) of any single sentence in the transcript to the question.
+3. "is_off_topic": Set to true ONLY IF max_sentence_similarity < 0.35.
+4. "is_tangential": Set to true ONLY IF max_sentence_similarity is between 0.35 and 0.50.
+Only output the JSON object."""
 
     res = _query_groq_llm(sys_prompt, f"Question: {question}\\n\\nTranscript: {transcript}")
     if not res: return _empty_relevance()
