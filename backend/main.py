@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 import uuid
@@ -11,6 +12,15 @@ from dotenv import load_dotenv
 import librosa
 from scorer import init_models, evaluate_pipeline
 load_dotenv()
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("webrtc-backend")
+
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
 rooms: Dict[str, List[WebSocket]] = {}
@@ -19,9 +29,9 @@ room_reports: Dict[str, Dict[str, dict]] = {}
 
 @app.on_event('startup')
 async def startup_event():
-    print('Initializing heavy ML models...')
+    logger.info('Initializing heavy ML models...')
     init_models()
-    print('ML Models initialization complete.')
+    logger.info('ML Models initialization complete.')
 
 @app.post('/create-room')
 async def create_room():
@@ -66,7 +76,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, userId: str=Non
 async def send_webhook(room_id: str, user_id: str, report: dict):
     webhook_url = os.environ.get("MAIN_BACKEND_WEBHOOK_URL")
     if not webhook_url:
-        print("Webhook URL not configured, skipping webhook.")
+        logger.warning("Webhook URL not configured, skipped, skipping webhook.")
         return
     
     payload = {
@@ -77,12 +87,12 @@ async def send_webhook(room_id: str, user_id: str, report: dict):
     
     async with httpx.AsyncClient() as client:
         try:
-            print(f"Sending webhook to {webhook_url} for user {user_id} in room {room_id}")
+            logger.info(f"Sending webhook to {webhook_url} for user {user_id} in room {room_id}")
             response = await client.post(webhook_url, json=payload, timeout=10.0)
             response.raise_for_status()
-            print("Webhook sent successfully.")
+            logger.info("Webhook sent successfully")
         except Exception as e:
-            print(f"Failed to send webhook: {e}")
+            logger.error(f"Failed to send webhook: {e}", exc_info=True)
 
 def process_audio_sync(temp_file_path: str, question: str):
     try:
@@ -114,8 +124,7 @@ def process_audio_sync(temp_file_path: str, question: str):
         report = evaluate_pipeline(transcript=transcript_text, segments=segments_list, word_timestamps=word_timestamps_list, audio_path=temp_file_path, audio_array=audio_array, sample_rate=sr, lang='en-US', question=question)
         return report
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error("Pipeline Error processing audio", exc_info=True)
         return {'fluency': 0.0, 'lexical': 0.0, 'grammar': 0.0, 'pronunciation': 0.0, 'overall': 0.0, 'user_input': transcript_text if 'transcript_text' in locals() else 'N/A', 'feedback': {'fluency': f'Pipeline Error: {str(e)}', 'lexical': f'Pipeline Error: {str(e)}', 'grammar': f'Pipeline Error: {str(e)}', 'pronunciation': f'Pipeline Error: {str(e)}'}}
 
 @app.post('/evaluate')
@@ -125,7 +134,7 @@ async def evaluate_audio(audio: UploadFile=File(...), roomId: str=Form(...), use
     with open(temp_file_path, 'wb') as buffer:
         buffer.write(await audio.read())
     file_size = os.path.getsize(temp_file_path)
-    print(f'Received audio from {userId}, size: {file_size} bytes, content_type: {audio.content_type}')
+    logger.info(f'Received audio from {userId}, size:{file_size} bytes, content_type: {audio.content_type}')
 
     def cleanup():
         if os.path.exists(temp_file_path):

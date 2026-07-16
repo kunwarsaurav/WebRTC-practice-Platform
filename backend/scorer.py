@@ -10,6 +10,8 @@ _transcribe_lock = threading.Lock()
 import time
 from dotenv import load_dotenv
 load_dotenv()
+import logging
+logger = logging.getLogger("webrtc-scorer")
 from collections import Counter, defaultdict
 from typing import Any
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
@@ -23,11 +25,12 @@ from parselmouth.praat import call  # type: ignore
 
 
 def init_models():
-    print('[INIT] No heavy models to load! Using Groq API for NLP.', file=sys.stderr)
+    logger.info('[INIT] No heavy models to load! Using Groq API for NLP.')
 
 def _query_groq_llm(system_prompt: str, user_prompt: str) -> dict:
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
+        logger.error('[GROQ] No API Key found')
         return {}
     
     try:
@@ -49,7 +52,7 @@ def _query_groq_llm(system_prompt: str, user_prompt: str) -> dict:
         result = response.json()
         return json.loads(result["choices"][0]["message"]["content"])
     except Exception as e:
-        print(f"Groq API Error: {e}", file=sys.stderr)
+        logger.error(f"Groq API Error: {e}", exc_info=True)
         return {}
 
 FILLER_WORDS = {'uh', 'um', 'er', 'erm', 'hmm', 'hm', 'ah', 'oh', 'like', 'you know', 'i mean', 'sort of', 'kind of', 'basically', 'literally', 'actually', 'right'}

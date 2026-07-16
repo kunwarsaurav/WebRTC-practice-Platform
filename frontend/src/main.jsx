@@ -29,7 +29,7 @@ function App() {
   const [topicIndex, setTopicIndex] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(SESSION_DURATION);
   const [reports, setReports] = useState(null);
-  
+
   const [isRecording, setIsRecording] = useState(false);
   const [hasRecorded, setHasRecorded] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -130,16 +130,16 @@ function App() {
         }
       }
       else if (message.type === 'evaluation-ready') {
-         setReports(message.reports);
-         if (statusRef.current === 'Processing' && Object.keys(message.reports).length >= 2) {
-             setStatus('ReportReady');
-         }
+        setReports(message.reports);
+        if (statusRef.current === 'Processing' && Object.keys(message.reports).length >= 2) {
+          setStatus('ReportReady');
+        }
       }
     };
     wsRef.current.onclose = () => {
-       if (statusRef.current === 'Connected' || statusRef.current === 'Waiting') {
-           setStatus('Disconnected');
-       }
+      if (statusRef.current === 'Connected' || statusRef.current === 'Waiting') {
+        setStatus('Disconnected');
+      }
     };
   };
 
@@ -157,13 +157,13 @@ function App() {
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === 'connected') setStatus('Connected');
       else if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
-         if (!isProcessingRef.current) {
-            if (statusRef.current === 'Connected') {
-               handleLeave(true);
-            } else {
-               setStatus('Disconnected');
-            }
-         }
+        if (!isProcessingRef.current) {
+          if (statusRef.current === 'Connected') {
+            handleLeave(true);
+          } else {
+            setStatus('Disconnected');
+          }
+        }
       }
     };
     pc.ontrack = (event) => {
@@ -224,19 +224,20 @@ function App() {
     if (!roomId) return alert("Please enter a room ID");
     try {
       const stream = await navigator.mediaDevices.getUserMedia
-      ({ 
-        audio: {
-          echoCancellation: true,  // Enable echo cancellation
-          noiseSuppression: true,    // Enable noise suppression
-          autoGainControl: false,    // Enable auto gain control
-          sampleRate: 48000,
-          channelCount: 1
-        }, 
-        video: false 
-      });
+        ({
+          audio: {
+            echoCancellation: true,  // Enable echo cancellation
+            noiseSuppression: true,    // Enable noise suppression
+            autoGainControl: false,    // Enable auto gain control
+            sampleRate: 48000,
+            channelCount: 1
+          },
+          video: false
+        });
       localStreamRef.current = stream;
 
-      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const mr = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mr;
 
       mr.ondataavailable = (e) => {
@@ -244,13 +245,18 @@ function App() {
       };
 
       mr.onstop = () => {
-        recordedBlobRef.current = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        recordedBlobRef.current = new Blob(audioChunksRef.current, { type: mimeType });
       };
 
       initializePeerConnection();
       connectToSignalingServer(roomId);
     } catch (err) {
-      alert("Microphone access denied or not available.");
+      console.error("Error joining session:", err);
+      if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
+        alert("Microphone access denied or no microphone found.");
+      } else {
+        alert("An error occurred while setting up the session. Check console for details.");
+      }
     }
   };
 
@@ -259,8 +265,8 @@ function App() {
       isProcessingRef.current = true;
       setStatus('Processing');
       if (!isSubmitted && recordedBlobRef.current) {
-          setIsSubmitted(true);
-          await uploadAudio(recordedBlobRef.current);
+        setIsSubmitted(true);
+        await uploadAudio(recordedBlobRef.current);
       }
     } else if (reports && Object.keys(reports).length >= 2) {
       isProcessingRef.current = false;
@@ -284,21 +290,21 @@ function App() {
     }
 
     if (wsRef.current) {
-       if (process && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'end-call' }));
-       } else {
-          wsRef.current.close();
-          wsRef.current = null;
-       }
+      if (process && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'end-call' }));
+      } else {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     }
 
     if (peerConnectionRef.current) {
-       peerConnectionRef.current.close();
-       peerConnectionRef.current = null;
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
     }
     if (localStreamRef.current) {
-       localStreamRef.current.getTracks().forEach(t => t.stop());
-       localStreamRef.current = null;
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
     }
   };
 
@@ -310,7 +316,7 @@ function App() {
   };
 
   useEffect(() => {
-     return () => handleLeave(false);
+    return () => handleLeave(false);
   }, []);
 
   if (status === 'Disconnected') {
@@ -329,7 +335,7 @@ function App() {
         <h2 style={{ color: '#0f172a' }}>Session Complete!</h2>
         <p style={{ color: '#64748b', marginTop: '10px' }}>Processing your conversation with AI...</p>
         <div style={{ marginTop: '20px' }}>
-           <Clock className="animate-spin" size={32} color="#3b82f6" style={{ margin: '0 auto' }} />
+          <Clock className="animate-spin" size={32} color="#3b82f6" style={{ margin: '0 auto' }} />
         </div>
       </div>
     );
@@ -340,15 +346,15 @@ function App() {
       <div className="app-container">
         <div className="header">
           <button className="back-btn" onClick={() => {
-             setStatus('Disconnected');
-             setReports(null);
-             setTopicIndex(0);
-             setSecondsRemaining(SESSION_DURATION);
-             setIsRecording(false);
-             setHasRecorded(false);
-             setIsSubmitted(false);
-             recordedBlobRef.current = null;
-             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+            setStatus('Disconnected');
+            setReports(null);
+            setTopicIndex(0);
+            setSecondsRemaining(SESSION_DURATION);
+            setIsRecording(false);
+            setHasRecorded(false);
+            setIsSubmitted(false);
+            recordedBlobRef.current = null;
+            if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
           }}>
             <ArrowLeft size={20} />
           </button>
@@ -360,38 +366,38 @@ function App() {
           {reports && Object.entries(reports).map(([uid, report]) => (
             <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                 <FileText size={20} color="#3b82f6"/>
-                 {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
+                <FileText size={20} color="#3b82f6" />
+                {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
               </h3>
               <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0f172a', marginBottom: '16px' }}>
-                 Band {report.overall}
+                Band {report.overall}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#475569' }}>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
               </div>
 
               {report.user_input && (
-                 <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
-                   <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
-                   <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
-                 </div>
+                <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
+                  <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
+                  <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
+                </div>
               )}
               {report.feedback && typeof report.feedback === 'object' ? (
-                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                   {Object.entries(report.feedback).map(([category, text]) => (
-                     <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
-                       <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
-                       {text}
-                     </div>
-                   ))}
-                 </div>
+                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {Object.entries(report.feedback).map(([category, text]) => (
+                    <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                      <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
+                      {text}
+                    </div>
+                  ))}
+                </div>
               ) : (
-                 <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
-                   {report.feedback}
-                 </div>
+                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                  {report.feedback}
+                </div>
               )}
             </div>
           ))}
@@ -425,38 +431,38 @@ function App() {
           {Object.entries(reports).map(([uid, report]) => (
             <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                 <FileText size={20} color="#3b82f6"/>
-                 {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
+                <FileText size={20} color="#3b82f6" />
+                {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
               </h3>
               <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0f172a', marginBottom: '16px' }}>
-                 Band {report.overall}
+                Band {report.overall}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#475569' }}>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
-                 <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
               </div>
 
               {report.user_input && (
-                 <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
-                   <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
-                   <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
-                 </div>
+                <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
+                  <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
+                  <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
+                </div>
               )}
               {report.feedback && typeof report.feedback === 'object' ? (
-                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                   {Object.entries(report.feedback).map(([category, text]) => (
-                     <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
-                       <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
-                       {text}
-                     </div>
-                   ))}
-                 </div>
+                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {Object.entries(report.feedback).map(([category, text]) => (
+                    <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                      <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
+                      {text}
+                    </div>
+                  ))}
+                </div>
               ) : (
-                 <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
-                   {report.feedback}
-                 </div>
+                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                  {report.feedback}
+                </div>
               )}
             </div>
           ))}
@@ -494,29 +500,29 @@ function App() {
 
       <div className="controls-section">
         {status === 'Connected' && !isSubmitted && (
-           <>
-             {!isRecording ? (
-               <button className="control-btn" style={{ background: '#ef4444', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={startRecording}>
-                 Record Answer
-               </button>
-             ) : (
-               <button className="control-btn" style={{ background: '#f59e0b', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={stopRecording}>
-                 Stop Recording
-               </button>
-             )}
-           </>
+          <>
+            {!isRecording ? (
+              <button className="control-btn" style={{ background: '#ef4444', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={startRecording}>
+                Record Answer
+              </button>
+            ) : (
+              <button className="control-btn" style={{ background: '#f59e0b', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={stopRecording}>
+                Stop Recording
+              </button>
+            )}
+          </>
         )}
-        
+
         {hasRecorded && !isRecording && !isSubmitted && status === 'Connected' && (
-           <button className="control-btn" style={{ background: '#10b981', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={handleSubmit}>
-             Submit Answer
-           </button>
+          <button className="control-btn" style={{ background: '#10b981', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={handleSubmit}>
+            Submit Answer
+          </button>
         )}
 
         {isSubmitted && status === 'Connected' && (!reports || Object.keys(reports).length < 2) && (
-           <div style={{ padding: '10px 20px', color: '#10b981', fontWeight: 'bold', background: '#ecfdf5', borderRadius: '8px' }}>
-             AI is evaluating... You can continue talking with your partner!
-           </div>
+          <div style={{ padding: '10px 20px', color: '#10b981', fontWeight: 'bold', background: '#ecfdf5', borderRadius: '8px' }}>
+            AI is evaluating... You can continue talking with your partner!
+          </div>
         )}
 
         <button className={`control-btn ${isMuted ? 'muted' : ''}`} onClick={toggleMute}>
