@@ -226,7 +226,17 @@ function App() {
   const handleJoin = async () => {
     if (!roomId) return alert("Please enter a room ID");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia
+      ({ 
+        audio: {
+          echoCancellation: true,  // Enable echo cancellation
+          noiseSuppression: true,    // Enable noise suppression
+          autoGainControl: true,    // Enable auto gain control
+          sampleRate: 48000,
+          channelCount: 1
+        }, 
+        video: false 
+      });
       localStreamRef.current = stream;
 
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
