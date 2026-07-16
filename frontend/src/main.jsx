@@ -18,7 +18,7 @@ const TOPICS = [
   "Describe an interesting conversation you had with a stranger. You should say: where you met them, what you talked about, why you found it interesting, and explain how it affected you."
 ];
 
-const SESSION_DURATION = 300;
+const SESSION_DURATION = 600;
 
 function App() {
   const [roomId, setRoomId] = useState('');
