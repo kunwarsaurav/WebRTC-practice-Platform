@@ -265,6 +265,10 @@ function App() {
   };
 
   const handleLeave = async (process = false) => {
+
+    if (process && !hasRecorded && !isRecording){
+      process = false;
+    }
     if (process && (!reports || Object.keys(reports).length < 2)) {
       isProcessingRef.current = true;
       setStatus('Processing');
