@@ -135,7 +135,7 @@ function App() {
       }
       else if (message.type === 'evaluation-ready') {
         setReports(message.reports);
-        if (statusRef.current === 'Processing' && Object.keys(message.reports).length >= 2) {
+        if (statusRef.current === 'Processing' && Object.keys(message.reports).length > 0) {
           setStatus('ReportReady');
         }
       }
@@ -269,14 +269,14 @@ function App() {
     if (process && !hasRecorded && !isRecording){
       process = false;
     }
-    if (process && (!reports || Object.keys(reports).length < 2)) {
+    if (process && (!reports || Object.keys(reports).length === 0)) {
       isProcessingRef.current = true;
       setStatus('Processing');
       if (!isSubmitted && recordedBlobRef.current) {
         setIsSubmitted(true);
         await uploadAudio(recordedBlobRef.current);
       }
-    } else if (reports && Object.keys(reports).length >= 2) {
+    } else if (reports && Object.keys(reports).length > 0) {
       isProcessingRef.current = false;
       setStatus('ReportReady');
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
@@ -440,7 +440,7 @@ function App() {
         </div>
       </div>
 
-      {reports && Object.keys(reports).length >= 2 ? (
+      {reports && Object.keys(reports).length > 0 ? (
         <div className="reports-container">
           {Object.entries(reports).map(([uid, report]) => (
             <div key={uid} className="report-card glass-panel">
@@ -533,7 +533,7 @@ function App() {
           </button>
         )}
 
-        {isSubmitted && status === 'Connected' && (!reports || Object.keys(reports).length < 2) && (
+        {isSubmitted && status === 'Connected' && (!reports || !reports[userIdRef.current]) && (
           <div style={{ padding: '10px 20px', color: '#10b981', fontWeight: 'bold', background: '#ecfdf5', borderRadius: '8px' }}>
             AI is evaluating... You can continue talking with your partner!
           </div>
