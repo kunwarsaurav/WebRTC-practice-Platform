@@ -26,6 +26,7 @@ function App() {
   const statusRef = useRef('Disconnected');
   useEffect(() => { statusRef.current = status; }, [status]);
   const [isMuted, setIsMuted] = useState(false);
+  const [isPartnerMuted, setIsPartnerMuted] = useState(false);
   const [topicIndex, setTopicIndex] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(SESSION_DURATION);
   const [reports, setReports] = useState(null);
@@ -128,6 +129,9 @@ function App() {
         if (statusRef.current === 'Connected' || statusRef.current === 'Waiting') {
           handleLeave(true);
         }
+      }
+      else if (message.type === 'mute-status') {
+        setIsPartnerMuted(message.isMuted);
       }
       else if (message.type === 'evaluation-ready') {
         setReports(message.reports);
@@ -311,7 +315,13 @@ function App() {
   const toggleMute = () => {
     if (localStreamRef.current) {
       const track = localStreamRef.current.getAudioTracks()[0];
-      if (track) { track.enabled = !track.enabled; setIsMuted(!track.enabled); }
+      if (track) { 
+        track.enabled = !track.enabled; 
+        setIsMuted(!track.enabled);
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'mute-status', isMuted: !track.enabled }));
+        }
+      }
     }
   };
 
@@ -321,8 +331,8 @@ function App() {
 
   if (status === 'Disconnected') {
     return (
-      <div className="join-screen">
-        <h1 style={{ marginBottom: '30px', color: '#0f172a' }}>IELTS Practice</h1>
+      <div className="join-screen glass-panel">
+        <h1 style={{ marginBottom: '30px', color: 'var(--primary)' }}>IELTS Practice</h1>
         <input className="join-input" type="text" placeholder="Enter Room ID" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
         <button className="join-btn" onClick={handleJoin}>Join Practice Session</button>
       </div>
@@ -331,11 +341,11 @@ function App() {
 
   if (status === 'Processing') {
     return (
-      <div className="join-screen">
-        <h2 style={{ color: '#0f172a' }}>Session Complete!</h2>
-        <p style={{ color: '#64748b', marginTop: '10px' }}>Processing your conversation with AI...</p>
+      <div className="join-screen glass-panel">
+        <h2 style={{ color: 'var(--primary)' }}>Session Complete!</h2>
+        <p style={{ color: 'var(--text-muted)', marginTop: '10px' }}>Processing your conversation with AI...</p>
         <div style={{ marginTop: '20px' }}>
-          <Clock className="animate-spin" size={32} color="#3b82f6" style={{ margin: '0 auto' }} />
+          <Clock className="animate-spin" size={32} color="var(--primary)" style={{ margin: '0 auto' }} />
         </div>
       </div>
     );
@@ -362,40 +372,40 @@ function App() {
           <div></div>
         </div>
 
-        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', overflowY: 'auto', maxHeight: '600px', padding: '10px' }}>
+        <div className="reports-container">
           {reports && Object.entries(reports).map(([uid, report]) => (
-            <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-              <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <FileText size={20} color="#3b82f6" />
+            <div key={uid} className="report-card glass-panel">
+              <h3>
+                <FileText size={24} />
                 {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
               </h3>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0f172a', marginBottom: '16px' }}>
+              <div className={`report-overall ${report.overall >= 7 ? 'score-green' : report.overall >= 5.5 ? 'score-orange' : 'score-red'}`}>
                 Band {report.overall}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#475569' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
+              <div className="report-metrics">
+                <div className="metric-row"><span>Fluency:</span> <strong>{report.fluency}</strong></div>
+                <div className="metric-row"><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
+                <div className="metric-row"><span>Grammar:</span> <strong>{report.grammar}</strong></div>
+                <div className="metric-row"><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
               </div>
 
               {report.user_input && (
-                <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
+                <div className="transcript-box">
                   <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
                   <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
                 </div>
               )}
               {report.feedback && typeof report.feedback === 'object' ? (
-                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="feedback-section">
                   {Object.entries(report.feedback).map(([category, text]) => (
-                    <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
-                      <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
+                    <div key={category} className="feedback-box">
+                      <strong className="feedback-title">{category} Feedback</strong>
                       {text}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                <div className="feedback-box">
                   {report.feedback}
                 </div>
               )}
@@ -427,40 +437,40 @@ function App() {
       </div>
 
       {reports && Object.keys(reports).length >= 2 ? (
-        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', overflowY: 'auto', maxHeight: '500px', padding: '10px' }}>
+        <div className="reports-container">
           {Object.entries(reports).map(([uid, report]) => (
-            <div key={uid} style={{ flex: '1 1 300px', background: 'white', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-              <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <FileText size={20} color="#3b82f6" />
+            <div key={uid} className="report-card glass-panel">
+              <h3>
+                <FileText size={24} />
                 {uid === userIdRef.current ? "Your Report" : "Partner's Report"}
               </h3>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#0f172a', marginBottom: '16px' }}>
+              <div className={`report-overall ${report.overall >= 7 ? 'score-green' : report.overall >= 5.5 ? 'score-orange' : 'score-red'}`}>
                 Band {report.overall}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#475569' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Fluency:</span> <strong>{report.fluency}</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Grammar:</span> <strong>{report.grammar}</strong></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
+              <div className="report-metrics">
+                <div className="metric-row"><span>Fluency:</span> <strong>{report.fluency}</strong></div>
+                <div className="metric-row"><span>Lexical Resource:</span> <strong>{report.lexical}</strong></div>
+                <div className="metric-row"><span>Grammar:</span> <strong>{report.grammar}</strong></div>
+                <div className="metric-row"><span>Pronunciation:</span> <strong>{report.pronunciation}</strong></div>
               </div>
 
               {report.user_input && (
-                <div style={{ marginTop: '20px', padding: '16px', background: '#fef3c7', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6', color: '#92400e' }}>
+                <div className="transcript-box">
                   <strong style={{ display: 'block', marginBottom: '6px' }}>Your Transcript</strong>
                   <span style={{ fontStyle: 'italic' }}>"{report.user_input}"</span>
                 </div>
               )}
               {report.feedback && typeof report.feedback === 'object' ? (
-                <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="feedback-section">
                   {Object.entries(report.feedback).map(([category, text]) => (
-                    <div key={category} style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
-                      <strong style={{ textTransform: 'capitalize', color: '#3b82f6', display: 'block', marginBottom: '6px' }}>{category} Feedback</strong>
+                    <div key={category} className="feedback-box">
+                      <strong className="feedback-title">{category} Feedback</strong>
                       {text}
                     </div>
                   ))}
                 </div>
               ) : (
-                <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '8px', fontSize: '14px', lineHeight: '1.6' }}>
+                <div className="feedback-box">
                   {report.feedback}
                 </div>
               )}
@@ -468,7 +478,7 @@ function App() {
           ))}
         </div>
       ) : (
-        <div className="topic-card">
+        <div className="topic-card glass-panel">
           <div className="topic-header">CURRENT TOPIC</div>
           <div className="topic-content">{TOPICS[topicIndex]}</div>
           <div className="topic-footer">
@@ -492,7 +502,7 @@ function App() {
         </div>
         <div className="visualizer-wrapper">
           <div className="bars">
-            {status === 'Connected' ? <><div className="bar partner-bar"></div><div className="bar partner-bar"></div><div className="bar partner-bar"></div><div className="bar partner-bar"></div></> : <div className="partner-inactive-dashed"></div>}
+            {status === 'Connected' && !isPartnerMuted ? <><div className="bar partner-bar"></div><div className="bar partner-bar"></div><div className="bar partner-bar"></div><div className="bar partner-bar"></div></> : <div className="partner-inactive-dashed"></div>}
           </div>
           <div className="avatar-label">Partner {status === 'Waiting' && '(Waiting)'}</div>
         </div>
@@ -502,11 +512,11 @@ function App() {
         {status === 'Connected' && !isSubmitted && (
           <>
             {!isRecording ? (
-              <button className="control-btn" style={{ background: '#ef4444', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={startRecording}>
+              <button className="btn-action btn-record" onClick={startRecording}>
                 Record Answer
               </button>
             ) : (
-              <button className="control-btn" style={{ background: '#f59e0b', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={stopRecording}>
+              <button className="btn-action btn-stop" onClick={stopRecording}>
                 Stop Recording
               </button>
             )}
@@ -514,7 +524,7 @@ function App() {
         )}
 
         {hasRecorded && !isRecording && !isSubmitted && status === 'Connected' && (
-          <button className="control-btn" style={{ background: '#10b981', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold' }} onClick={handleSubmit}>
+          <button className="btn-action btn-submit" onClick={handleSubmit}>
             Submit Answer
           </button>
         )}
