@@ -56,9 +56,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, userId: str=Non
     try:
         while True:
             data = await websocket.receive_text()
-            for client in rooms[room_id]:
+            for client in list(rooms.get(room_id, [])):
                 if client != websocket:
-                    await client.send_text(data)
+                    try:
+                        await client.send_text(data)
+                    except Exception as e:
+                        logger.error(f"Failed to send message to a client: {e}")
     except WebSocketDisconnect:
         if websocket in rooms.get(room_id, []):
             rooms[room_id].remove(websocket)

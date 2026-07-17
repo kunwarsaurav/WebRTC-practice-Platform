@@ -41,6 +41,7 @@ function App() {
   const wsRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const timerRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -107,8 +108,9 @@ function App() {
 
   const connectToSignalingServer = async (roomId) => {
     const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'localhost:8000';
-    const protocol = BACKEND_URL.includes('localhost') ? 'ws' : 'wss';
-    const cleanUrl = BACKEND_URL.replace(/^wss?:\/\//, '');
+    const isHttps = window.location.protocol === 'https:' || BACKEND_URL.startsWith('https://') || BACKEND_URL.startsWith('wss://');
+    const protocol = isHttps && !BACKEND_URL.includes('localhost') ? 'wss' : 'ws';
+    const cleanUrl = BACKEND_URL.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
     const wsUrl = `${protocol}://${cleanUrl}/ws/${roomId}?userId=${userIdRef.current}`;
 
     wsRef.current = new WebSocket(wsUrl);
@@ -160,6 +162,7 @@ function App() {
   const initializePeerConnection = () => {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnectionRef.current = pc;
+    pendingCandidatesRef.current = [];
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => pc.addTrack(track, localStreamRef.current));
     }
@@ -200,16 +203,34 @@ function App() {
     const answer = await peerConnectionRef.current.createAnswer();
     await peerConnectionRef.current.setLocalDescription(answer);
     wsRef.current.send(JSON.stringify({ type: 'answer', sdp: peerConnectionRef.current.localDescription }));
+    
+    for (const candidate of pendingCandidatesRef.current) {
+      try { await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)); }
+      catch (e) { console.error(e); }
+    }
+    pendingCandidatesRef.current = [];
   };
 
   const handleAnswer = async (sdp) => {
     if (!peerConnectionRef.current) return;
     await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+    
+    for (const candidate of pendingCandidatesRef.current) {
+      try { await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)); }
+      catch (e) { console.error(e); }
+    }
+    pendingCandidatesRef.current = [];
   };
 
   const handleNewICECandidateMsg = async (candidate) => {
     if (!peerConnectionRef.current) return;
-    try { await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)); }
+    try { 
+      if (!peerConnectionRef.current.remoteDescription) {
+        pendingCandidatesRef.current.push(candidate);
+      } else {
+        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)); 
+      }
+    }
     catch (e) { console.error(e); }
   };
 
