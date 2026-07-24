@@ -6,3 +6,7 @@ python-dotenv
 librosa
 praat-parselmouth
 httpx
+spacy
+language-tool-python
+sentence-transformers
+wordfreq
