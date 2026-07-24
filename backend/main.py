@@ -97,30 +97,106 @@ async def send_webhook(room_id: str, user_id: str, report: dict):
         except Exception as e:
             logger.error(f"Failed to send webhook: {e}", exc_info=True)
 
+def transcribe_with_google(audio_path: str):
+    from google.cloud import speech
+    from google.cloud import storage
+    import soundfile as sf
+    
+    logger.info("Transcribing with Google Speech-to-Text...")
+    bucket_name = os.environ.get("GCS_BUCKET_NAME")
+    if not bucket_name or bucket_name == "your-gcs-bucket-name":
+        raise ValueError("GCS_BUCKET_NAME not properly configured in .env")
+    
+    y, sr = librosa.load(audio_path, sr=16000, mono=True)
+    
+    temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    temp_wav.close()
+    sf.write(temp_wav.name, y, sr, subtype='PCM_16')
+    
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    
+    blob_name = f"ielts_audio_{uuid.uuid4().hex}.wav"
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(temp_wav.name)
+    
+    gcs_uri = f"gs://{bucket_name}/{blob_name}"
+    
+    speech_client = speech.SpeechClient()
+    
+    audio = speech.RecognitionAudio(uri=gcs_uri)
+    config = speech.RecognitionConfig(
+        language_code="en-US",
+        enable_word_time_offsets=True,
+        enable_automatic_punctuation=True,
+        model="latest_long",
+    )
+    
+    operation = speech_client.long_running_recognize(config=config, audio=audio)
+    response = operation.result(timeout=600)
+    
+    blob.delete()
+    try:
+        os.unlink(temp_wav.name)
+    except:
+        pass
+    
+    transcript_text = ""
+    segments = []
+    word_timestamps = []
+    
+    for result in response.results:
+        alternative = result.alternatives[0]
+        transcript_text += alternative.transcript + " "
+        
+        if alternative.words:
+            start_sec = alternative.words[0].start_time.total_seconds()
+            end_sec = alternative.words[-1].end_time.total_seconds()
+            
+            segments.append({
+                "start": start_sec,
+                "end": end_sec,
+                "text": alternative.transcript
+            })
+            
+            for word_info in alternative.words:
+                word_timestamps.append({
+                    "word": word_info.word,
+                    "start": word_info.start_time.total_seconds(),
+                    "end": word_info.end_time.total_seconds()
+                })
+                
+    return transcript_text.strip(), segments, word_timestamps
+
 def process_audio_sync(temp_file_path: str, question: str):
     try:
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key or api_key == "your_groq_api_key_here":
-            raise ValueError("GROQ_API_KEY is missing or invalid in .env")
+        use_google = os.environ.get("USE_GOOGLE_SPEECH", "false").lower() == "true"
+        
+        if use_google:
+            transcript_text, segments_list, word_timestamps_list = transcribe_with_google(temp_file_path)
+        else:
+            api_key = os.environ.get("GROQ_API_KEY")
+            if not api_key or api_key == "your_groq_api_key_here":
+                raise ValueError("GROQ_API_KEY is missing or invalid in .env")
 
-        with open(temp_file_path, "rb") as audio_file:
-            response = httpx.post(
-                "https://api.groq.com/openai/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                data={
-                    "model": "whisper-large-v3",
-                    "response_format": "verbose_json",
-                    "timestamp_granularities[]": ["word", "segment"]
-                },
-                files={"file": (os.path.basename(temp_file_path), audio_file, "audio/webm")},
-                timeout=60.0
-            )
-            response.raise_for_status()
-            result = response.json()
+            with open(temp_file_path, "rb") as audio_file:
+                response = httpx.post(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    data={
+                        "model": "whisper-large-v3",
+                        "response_format": "verbose_json",
+                        "timestamp_granularities[]": ["word", "segment"]
+                    },
+                    files={"file": (os.path.basename(temp_file_path), audio_file, "audio/webm")},
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                result = response.json()
 
-        transcript_text = result.get("text", "").strip()
-        segments_list = result.get("segments", [])
-        word_timestamps_list = result.get("words", [])
+            transcript_text = result.get("text", "").strip()
+            segments_list = result.get("segments", [])
+            word_timestamps_list = result.get("words", [])
 
         audio_array, sr = librosa.load(temp_file_path, sr=16000)
         

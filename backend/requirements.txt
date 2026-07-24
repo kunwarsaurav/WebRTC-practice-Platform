@@ -8,5 +8,8 @@ praat-parselmouth
 httpx
 spacy
 language-tool-python
-sentence-transformers
-wordfreq
+sentence-transformers==3.0.0
+wordfreq==3.1.1
+google-cloud-speech
+google-cloud-storage
+soundfile
