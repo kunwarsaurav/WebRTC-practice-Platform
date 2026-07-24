@@ -80,6 +80,7 @@ function App() {
   };
 
   const uploadAudio = async (blob) => {
+    console.log(`[Submission] Preparing to upload audio. Blob size: ${blob.size} bytes`);
     const formData = new FormData();
     formData.append("audio", blob, "recording.webm");
     formData.append("roomId", roomId);
@@ -88,6 +89,7 @@ function App() {
 
     const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'localhost:8000';
     const httpUrl = BACKEND_URL.includes('localhost') ? `http://${BACKEND_URL}` : `https://${BACKEND_URL}`;
+    console.log(`[Submission] Sending POST request to: ${httpUrl}/evaluate`);
 
     try {
       const response = await fetch(`${httpUrl}/evaluate`, {
@@ -98,9 +100,9 @@ function App() {
         }
       });
       const data = await response.json();
-      console.log("Evaluation initiated.", data);
+      console.log("[Submission] Evaluation successfully initiated. Server Response:", data);
     } catch (e) {
-      console.error(e);
+      console.error("[Submission Error] Failed to upload audio:", e);
       alert("Evaluation failed.");
       setIsSubmitted(false);
     }
@@ -113,15 +115,22 @@ function App() {
     const cleanUrl = BACKEND_URL.replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
     const wsUrl = `${protocol}://${cleanUrl}/ws/${roomId}?userId=${userIdRef.current}`;
 
+    console.log(`[WebSocket] Attempting to connect to signaling server at: ${wsUrl}`);
     wsRef.current = new WebSocket(wsUrl);
+    
     let pingInterval;
     wsRef.current.onopen = () => {
+      console.log("[WebSocket] Connection established successfully!");
       setStatus('Waiting');
       pingInterval = setInterval(() => {
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({ type: 'ping' }));
         }
       }, 30000);
+    };
+
+    wsRef.current.onerror = (error) => {
+      console.error("[WebSocket Error] Connection error occurred:", error);
     };
 
     wsRef.current.onmessage = async (event) => {
@@ -236,6 +245,7 @@ function App() {
 
   const startRecording = () => {
     if (!mediaRecorderRef.current) return;
+    console.log("[Recording] Starting audio capture...");
     audioChunksRef.current = [];
     mediaRecorderRef.current.start(1000);
     setIsRecording(true);
@@ -244,6 +254,7 @@ function App() {
 
   const stopRecording = () => {
     if (!mediaRecorderRef.current) return;
+    console.log("[Recording] Stopping audio capture...");
     mediaRecorderRef.current.stop();
     setIsRecording(false);
     setHasRecorded(true);
@@ -258,6 +269,7 @@ function App() {
   const handleJoin = async () => {
     if (!roomId) return alert("Please enter a room ID");
     try {
+      console.log("[Setup] Requesting microphone access...");
       const stream = await navigator.mediaDevices.getUserMedia
         ({
           audio: {
@@ -269,9 +281,11 @@ function App() {
           },
           video: false
         });
+      console.log("[Setup] Microphone access granted successfully.");
       localStreamRef.current = stream;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      console.log(`[Setup] Initializing MediaRecorder with MIME type: ${mimeType}`);
       const mr = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mr;
 
@@ -281,12 +295,13 @@ function App() {
 
       mr.onstop = () => {
         recordedBlobRef.current = new Blob(audioChunksRef.current, { type: mimeType });
+        console.log(`[Recording] Blob created successfully. Size: ${recordedBlobRef.current.size} bytes`);
       };
 
       initializePeerConnection();
       connectToSignalingServer(roomId);
     } catch (err) {
-      console.error("Error joining session:", err);
+      console.error("[Setup Error] Error joining session:", err);
       if (err.name === 'NotAllowedError' || err.name === 'NotFoundError') {
         alert("Microphone access denied or no microphone found.");
       } else {
@@ -581,7 +596,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+ReactDOM.createRoot(document.getElementById('newfeature-root')).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>

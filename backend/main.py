@@ -170,15 +170,21 @@ def transcribe_with_google(audio_path: str):
 
 def process_audio_sync(temp_file_path: str, question: str):
     try:
+        logger.info(f"process_audio_sync started for {temp_file_path}")
         use_google = os.environ.get("USE_GOOGLE_SPEECH", "false").lower() == "true"
+        logger.info(f"USE_GOOGLE_SPEECH is set to: {use_google}")
         
         if use_google:
+            logger.info("Initiating Google Speech-to-Text pipeline...")
             transcript_text, segments_list, word_timestamps_list = transcribe_with_google(temp_file_path)
+            logger.info("Google STT complete. Transcript generated.")
         else:
             api_key = os.environ.get("GROQ_API_KEY")
             if not api_key or api_key == "your_groq_api_key_here":
+                logger.error("GROQ_API_KEY missing!")
                 raise ValueError("GROQ_API_KEY is missing or invalid in .env")
 
+            logger.info("Initiating Groq Whisper pipeline...")
             with open(temp_file_path, "rb") as audio_file:
                 response = httpx.post(
                     "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -197,10 +203,14 @@ def process_audio_sync(temp_file_path: str, question: str):
             transcript_text = result.get("text", "").strip()
             segments_list = result.get("segments", [])
             word_timestamps_list = result.get("words", [])
+            logger.info("Groq Whisper complete. Transcript generated.")
 
+        logger.info("Loading audio with librosa for feature extraction...")
         audio_array, sr = librosa.load(temp_file_path, sr=16000)
         
+        logger.info("Passing data to evaluate_pipeline...")
         report = evaluate_pipeline(transcript=transcript_text, segments=segments_list, word_timestamps=word_timestamps_list, audio_path=temp_file_path, audio_array=audio_array, sample_rate=sr, lang='en-US', question=question)
+        logger.info("evaluate_pipeline complete.")
         return report
     except Exception as e:
         logger.error("Pipeline Error processing audio", exc_info=True)
@@ -213,26 +223,33 @@ async def evaluate_audio(audio: UploadFile=File(...), roomId: str=Form(...), use
     with open(temp_file_path, 'wb') as buffer:
         buffer.write(await audio.read())
     file_size = os.path.getsize(temp_file_path)
-    logger.info(f'Received audio from {userId}, size:{file_size} bytes, content_type: {audio.content_type}')
+    logger.info(f'Received audio from User {userId} in Room {roomId}, size:{file_size} bytes, content_type: {audio.content_type}')
 
     def cleanup():
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+            logger.info(f"Cleaned up temp file: {temp_file_path}")
     background_tasks.add_task(cleanup)
+    
+    logger.info(f"[{roomId}:{userId}] Passing audio to thread for processing...")
     # Run the heavy AI models in a separate thread so we don't block other users
     report = await asyncio.to_thread(process_audio_sync, temp_file_path, question)
+    logger.info(f"[{roomId}:{userId}] Processing thread returned report.")
+    
     if roomId not in room_reports:
         room_reports[roomId] = {}
     room_reports[roomId][userId] = report
     
+    logger.info(f"[{roomId}:{userId}] Triggering webhook...")
     # Trigger the webhook asynchronously
     background_tasks.add_task(send_webhook, roomId, userId, report)
     
     if roomId in rooms:
+        logger.info(f"[{roomId}] Broadcasting evaluation results to {len(rooms[roomId])} clients...")
         broadcast_data = json.dumps({'type': 'evaluation-ready', 'reports': room_reports[roomId]})
         for client in rooms[roomId]:
             try:
                 await client.send_text(broadcast_data)
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to broadcast to a client in {roomId}: {e}")
     return {'reports': room_reports[roomId]}

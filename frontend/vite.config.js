@@ -5,5 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     allowedHosts: true
+  },
+  build: {
+    rollupOptions: {
+      input: 'newfeature.html'
+    }
   }
 })
